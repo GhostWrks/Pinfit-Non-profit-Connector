@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NonProfitFinder</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+
+    <header class="hero" id="landing-view">
+      <p class="eyebrow">Community Impact Map</p>
+      <h1>Find where help is needed, right now.</h1>
+      <p class="subtitle">
+        A simple platform connecting donors with local nonprofits and helping organizations
+        keep needs data up to date.
+      </p>
+      <div class="hero-stats">
+        <article>
+          <p class="stat-value" id="stat-orgs">-</p>
+          <p class="stat-label">Organizations</p>
+        </article>
+        <article>
+          <p class="stat-value" id="stat-volunteer">-</p>
+          <p class="stat-label">Need Volunteers</p>
+        </article>
+        <article>
+          <p class="stat-value" id="stat-topneed">-</p>
+          <p class="stat-label">Top Need</p>
+        </article>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" data-go="donor">Explore as Donor</button>
+        <button class="btn btn-outline" data-go="nonprofit">Sign In as Nonprofit</button>
+      </div>
+      <p class="subtitle">
+        Donor mode uses ArcGIS Maps SDK directly in this app with built-in map search.
+      </p>
+    </header>
+
+    <main>
+      <section class="panel hidden" id="donor-view">
+        <div class="panel-head">
+          <h2>Donor Discovery</h2>
+          <button class="btn btn-text" data-go="home">Back</button>
+        </div>
+
+        <div class="donor-layout">
+          <div class="donor-sidebar">
+            <p class="subtitle">
+              Use the ArcGIS search bar on the map, then run nonprofit search around that area.
+            </p>
+
+            <form id="donor-form" class="grid-form">
+              <label>
+                Zipcode, city, or area
+                <input
+                  type="text"
+                  name="locationQuery"
+                  value="Redlands, CA"
+                  placeholder="92373, Redlands, Downtown LA..."
+                  required
+                />
+              </label>
+              <label>
+                Organization or area keyword
+                <input
+                  type="text"
+                  name="keyword"
+                  value=""
+                  placeholder="Riverbend, youth, pantry..."
+                />
+              </label>
+              <label>
+                Distance (miles)
+                <input type="number" name="distanceMiles" min="1" max="25" value="15" required />
+              </label>
+              <label>
+                Need Types (comma separated)
+                <input type="text" name="needTypes" value="food,clothing" />
+              </label>
+              <label>
+                Volunteers Needed
+                <select name="volunteersNeeded">
+                  <option value="">Any</option>
+                  <option value="true" selected>Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </label>
+              <input type="hidden" name="lat" value="" />
+              <input type="hidden" name="lon" value="" />
+              <div class="form-actions">
+                <button class="btn btn-primary" type="submit">Search Nonprofits</button>
+              </div>
+            </form>
+
+            <div id="donor-summary" class="summary-grid"></div>
+            <div id="donor-results" class="card-grid"></div>
+          </div>
+
+          <div class="map-wrap">
+            <div id="donor-map"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="nonprofit-view">
+        <div class="panel-head">
+          <h2>Nonprofit Flow (UI Demo)</h2>
+          <button class="btn btn-text" data-go="home">Back</button>
+        </div>
+
+        <div class="notice">
+          Login is currently a UI-only step. This mock flow helps you validate page flow and
+          form interactions before real auth wiring.
+        </div>
+
+        <form id="nonprofit-login-form" class="grid-form">
+          <label>
+            Organization Email
+            <input type="email" name="email" placeholder="team@nonprofit.org" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="Enter password" required />
+          </label>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Continue to Dashboard</button>
+          </div>
+        </form>
+
+        <div id="nonprofit-dashboard" class="hidden">
+          <h3>Dashboard Preview</h3>
+          <div id="np-indicators" class="summary-grid"></div>
+
+          <form id="nonprofit-needs-form" class="grid-form">
+            <label>
+              Current Needs
+              <input type="text" name="needs" value="food,volunteer support" />
+            </label>
+            <label>
+              Priority
+              <select name="priority">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high" selected>High</option>
+              </select>
+            </label>
+            <label>
+              Volunteer Needed
+              <select name="volunteersNeeded">
+                <option value="true" selected>Yes</option>
+                <option value="false">No</option>
+              </select>
+            </label>
+            <label>
+              Urgency Score
+              <input type="number" name="urgencyScore" min="1" max="100" value="80" />
+            </label>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Save (UI Demo)</button>
+            </div>
+          </form>
+
+          <div id="np-save-message" class="notice hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app-config.js"></script>
+    <script src="https://js.arcgis.com/4.30/"></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

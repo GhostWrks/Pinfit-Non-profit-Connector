@@ -1,0 +1,266 @@
+:root {
+  --bg: #f8f6ef;
+  --panel: #fffdf7;
+  --ink: #1f1f1d;
+  --muted: #5f5d56;
+  --brand: #125347;
+  --brand-2: #da5a2f;
+  --line: #e3ddcf;
+  --card-shadow: 0 14px 28px rgba(18, 83, 71, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 10% 10%, #f0e8d3, transparent 45%),
+    radial-gradient(circle at 85% 20%, #f7d8cc, transparent 35%),
+    var(--bg);
+  min-height: 100vh;
+}
+
+.bg-shape {
+  position: fixed;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(4px);
+}
+
+.bg-shape-a {
+  width: 280px;
+  height: 280px;
+  right: -60px;
+  bottom: 10%;
+  background: rgba(18, 83, 71, 0.14);
+}
+
+.bg-shape-b {
+  width: 220px;
+  height: 220px;
+  left: -40px;
+  top: 35%;
+  background: rgba(218, 90, 47, 0.14);
+}
+
+.hero,
+.panel {
+  width: min(1000px, 94vw);
+  margin: 2rem auto;
+  padding: 2rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--card-shadow);
+}
+
+.hero {
+  animation: rise-in 400ms ease-out;
+}
+
+.eyebrow {
+  color: var(--brand);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 3vw, 3rem);
+  line-height: 1.1;
+}
+
+.subtitle {
+  max-width: 62ch;
+  color: var(--muted);
+  margin: 1rem 0 1.5rem;
+}
+
+.hero-stats,
+.summary-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.hero-stats article,
+.summary-card {
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 14px;
+  padding: 0.75rem 0.9rem;
+}
+
+.stat-value {
+  font-size: 1.55rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.stat-label {
+  color: var(--muted);
+  margin: 0.2rem 0 0;
+}
+
+.hero-actions,
+.form-actions,
+.panel-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  font-size: 0.96rem;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: white;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+}
+
+.btn-text {
+  background: transparent;
+  color: var(--brand);
+}
+
+.grid-form {
+  margin: 1rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  gap: 0.3rem;
+}
+
+input,
+select {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.9rem;
+}
+
+.card p {
+  margin: 0.25rem 0;
+  color: var(--muted);
+}
+
+.donor-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.donor-sidebar {
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.map-wrap {
+  min-height: 72vh;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+#donor-map {
+  width: 100%;
+  height: 72vh;
+}
+
+.notice {
+  border-left: 4px solid var(--brand-2);
+  background: #fff6f2;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+  color: #71321e;
+}
+
+.hidden {
+  display: none;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 720px) {
+  .hero,
+  .panel {
+    margin: 1rem auto;
+    padding: 1.1rem;
+    border-radius: 16px;
+  }
+
+  .hero-actions,
+  .form-actions {
+    width: 100%;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .donor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .map-wrap,
+  #donor-map {
+    min-height: 55vh;
+    height: 55vh;
+  }
+}
