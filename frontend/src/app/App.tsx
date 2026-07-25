@@ -6,8 +6,9 @@ type Screen =
   | "loading"
   | "home"
   | "org-choice"
+  | "org-signin"
   | "create-account"
-  | "esri-prompt"
+  | "org-landing"
   | "donor-map";
 
 // ── Sample org data ───────────────────────────────────────────────────────────
@@ -974,6 +975,14 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [logoScale, setLogoScale] = useState(2.4);
   const [showRing, setShowRing] = useState(true);
+  const [orgSignInForm, setOrgSignInForm] = useState({ username: "", password: "" });
+  const [orgCreateForm, setOrgCreateForm] = useState({
+    username: "",
+    password: "",
+    confirmPassword: ""
+  });
+  const [orgAuthError, setOrgAuthError] = useState("");
+  const [orgAuthSuccess, setOrgAuthSuccess] = useState("");
 
   useEffect(() => {
     const ringTimer = setTimeout(() => {
@@ -987,6 +996,49 @@ export default function App() {
   }, []);
 
   const LOGO_BASE = 80;
+
+  const handleOrgSignIn = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setOrgAuthSuccess("");
+
+    const username = orgSignInForm.username.trim();
+    const password = orgSignInForm.password;
+
+    if (username === "admin" && password === "admin") {
+      setOrgAuthError("");
+      setScreen("org-landing");
+      return;
+    }
+
+    setOrgAuthError("Invalid credentials. Use username: admin and password: admin.");
+  };
+
+  const handleCreateAccount = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setOrgAuthError("");
+
+    const username = orgCreateForm.username.trim();
+    const password = orgCreateForm.password;
+    const confirmPassword = orgCreateForm.confirmPassword;
+
+    if (!username || !password || !confirmPassword) {
+      setOrgAuthSuccess("");
+      setOrgAuthError("Please fill in username, password, and confirm password.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setOrgAuthSuccess("");
+      setOrgAuthError("Password and confirm password must match.");
+      return;
+    }
+
+    setOrgAuthError("");
+    setOrgAuthSuccess("Account successfully created.");
+    setTimeout(() => {
+      setScreen("org-landing");
+    }, 700);
+  };
 
   return (
     <div
@@ -1101,12 +1153,78 @@ export default function App() {
                   Create Account
                 </button>
                 <button
-                  disabled
-                  className="w-full py-4 rounded-xl border border-black/15 text-foreground font-semibold text-base opacity-40 cursor-not-allowed bg-white/50"
+                  onClick={() => {
+                    setOrgAuthError("");
+                    setOrgAuthSuccess("");
+                    setOrgSignInForm({ username: "", password: "" });
+                    setScreen("org-signin");
+                  }}
+                  className="w-full py-4 rounded-xl border border-black/15 text-foreground font-semibold text-base bg-white/50 hover:bg-white/80 transition-colors"
                 >
                   Sign In
                 </button>
               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Org Sign In ── */}
+      <AnimatePresence>
+        {screen === "org-signin" && (
+          <motion.div
+            key="org-signin"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.45 }}
+            className="flex flex-col items-center gap-4 px-6"
+          >
+            <div className="flex flex-col items-center gap-2 bg-white/70 backdrop-blur-sm rounded-3xl px-10 py-8 shadow-lg border border-black/8 w-full max-w-md">
+              <div className="w-full flex justify-start -ml-2 mb-1">
+                <BackButton
+                  onClick={() => {
+                    setOrgAuthError("");
+                    setOrgAuthSuccess("");
+                    setScreen("org-choice");
+                  }}
+                />
+              </div>
+              <PinfitLogo size={44} />
+              <h2 className="text-3xl font-extrabold text-foreground mt-2">Organization Sign In</h2>
+              <p className="text-muted-foreground text-sm text-center max-w-xs">
+                Dummy login for demo: username admin and password admin.
+              </p>
+
+              <form className="flex flex-col gap-3 w-full mt-4" onSubmit={handleOrgSignIn}>
+                <input
+                  type="text"
+                  value={orgSignInForm.username}
+                  onChange={(event) =>
+                    setOrgSignInForm((current) => ({ ...current, username: event.target.value }))
+                  }
+                  placeholder="Username"
+                  className="w-full rounded-xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1a2e] outline-none focus:border-[#1a1a2e]/40"
+                />
+                <input
+                  type="password"
+                  value={orgSignInForm.password}
+                  onChange={(event) =>
+                    setOrgSignInForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                  placeholder="Password"
+                  className="w-full rounded-xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1a2e] outline-none focus:border-[#1a1a2e]/40"
+                />
+                {orgAuthError ? (
+                  <p className="text-xs font-semibold text-[#c0392b]">{orgAuthError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-md"
+                >
+                  Sign In
+                </button>
+              </form>
             </div>
           </motion.div>
         )}
@@ -1130,28 +1248,60 @@ export default function App() {
               <PinfitLogo size={44} />
               <h2 className="text-3xl font-extrabold text-foreground mt-2">Create Account</h2>
               <p className="text-muted-foreground text-sm text-center max-w-xs">
-                Register your organization to start connecting with donors worldwide.
+                This is a dummy create account form for UI demo flow.
               </p>
 
-              <div className="flex flex-col gap-4 w-full max-w-xs mt-4">
+              <form className="flex flex-col gap-3 w-full max-w-xs mt-4" onSubmit={handleCreateAccount}>
+                <input
+                  type="text"
+                  value={orgCreateForm.username}
+                  onChange={(event) =>
+                    setOrgCreateForm((current) => ({ ...current, username: event.target.value }))
+                  }
+                  placeholder="Username"
+                  className="w-full rounded-xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1a2e] outline-none focus:border-[#1a1a2e]/40"
+                />
+                <input
+                  type="password"
+                  value={orgCreateForm.password}
+                  onChange={(event) =>
+                    setOrgCreateForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                  placeholder="Password"
+                  className="w-full rounded-xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1a2e] outline-none focus:border-[#1a1a2e]/40"
+                />
+                <input
+                  type="password"
+                  value={orgCreateForm.confirmPassword}
+                  onChange={(event) =>
+                    setOrgCreateForm((current) => ({ ...current, confirmPassword: event.target.value }))
+                  }
+                  placeholder="Confirm Password"
+                  className="w-full rounded-xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1a2e] outline-none focus:border-[#1a1a2e]/40"
+                />
+                {orgAuthError ? (
+                  <p className="text-xs font-semibold text-[#c0392b]">{orgAuthError}</p>
+                ) : null}
+                {orgAuthSuccess ? (
+                  <p className="text-xs font-semibold text-[#125347]">{orgAuthSuccess}</p>
+                ) : null}
                 <button
-                  onClick={() => setScreen("esri-prompt")}
-                  className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring flex items-center justify-center gap-3 shadow-md"
+                  type="submit"
+                  className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-md"
                 >
-                  <EsriIcon />
-                  Create with Esri Account
+                  Create Account
                 </button>
-              </div>
+              </form>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Esri Prompt ── */}
+      {/* ── Organization Landing ── */}
       <AnimatePresence>
-        {screen === "esri-prompt" && (
+        {screen === "org-landing" && (
           <motion.div
-            key="esri-prompt"
+            key="org-landing"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -1160,31 +1310,40 @@ export default function App() {
           >
             <div className="flex flex-col items-center gap-5 bg-white/70 backdrop-blur-sm rounded-3xl px-10 py-8 shadow-lg border border-black/8 w-full max-w-xs">
               <div className="w-full flex justify-start -ml-2">
-                <BackButton onClick={() => setScreen("create-account")} />
-              </div>
-              <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center">
-                <EsriIcon size={36} />
+                <BackButton
+                  onClick={() => {
+                    setOrgAuthError("");
+                    setOrgAuthSuccess("");
+                    setScreen("org-choice");
+                  }}
+                />
               </div>
               <div className="flex flex-col items-center gap-1">
-                <h2 className="text-3xl font-extrabold text-foreground">Esri Account</h2>
+                <PinfitLogo size={44} />
+                <h2 className="text-3xl font-extrabold text-foreground">Organization Landing</h2>
                 <p className="text-muted-foreground text-sm text-center">
-                  You&apos;ll be redirected to Esri&apos;s secure login to complete your Pinfit setup.
+                  You are signed in. Welcome to your organization dashboard.
                 </p>
               </div>
 
-              <div className="w-full bg-amber-50/80 border border-amber-200/60 rounded-xl p-4 flex flex-col gap-1">
-                <span className="text-xs font-semibold text-amber-700 uppercase tracking-widest">Why Esri?</span>
-                <p className="text-xs text-amber-800/80 leading-relaxed">
-                  Pinfit uses Esri&apos;s trusted identity platform to verify organizations and keep your data secure.
+              <div className="w-full bg-emerald-50/90 border border-emerald-200 rounded-xl p-4 flex flex-col gap-1">
+                <span className="text-xs font-semibold text-emerald-700 uppercase tracking-widest">Demo Mode</span>
+                <p className="text-xs text-emerald-800/90 leading-relaxed">
+                  This is a dummy landing page for organization sign-in/create-account UI testing.
                 </p>
               </div>
 
               <button
                 className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring flex items-center justify-center gap-3 shadow-md"
-                onClick={() => {}}
+                onClick={() => {
+                  setOrgAuthError("");
+                  setOrgAuthSuccess("");
+                  setOrgSignInForm({ username: "", password: "" });
+                  setOrgCreateForm({ username: "", password: "", confirmPassword: "" });
+                  setScreen("home");
+                }}
               >
-                <EsriIcon />
-                Continue to Esri
+                Go To Home
               </button>
             </div>
           </motion.div>
