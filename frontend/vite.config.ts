@@ -31,14 +31,6 @@ export default defineConfig({
     },
   },
 
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': 'http://localhost:4000',
-      '/app-config.js': 'http://localhost:4000'
-    }
-  },
-
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
