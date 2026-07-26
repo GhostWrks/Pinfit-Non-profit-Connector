@@ -605,6 +605,10 @@ const loadArcgisModules = () =>
 
 // ── DonorMapScreen ─────────────────────────────────────────────────────────────
 function DonorMapScreen({ onBack }: { onBack: () => void }) {
+  const PIN_SELECTED_FIELD = "Pin_Selected";
+  const PIN_CIRCLE_URL = "/pin-circle.svg";
+  const PIN_HEART_URL = "/pin-heart.svg";
+
   const [queryText, setQueryText] = useState("");
   const [orgNameFilter, setOrgNameFilter] = useState("");
   const [zipFilter, setZipFilter] = useState("");
@@ -629,6 +633,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
   const definitionExpressionRef = useRef<string>("");
   const availableFieldsRef = useRef<Set<string>>(new Set());
   const featureByIdRef = useRef<Map<string, any>>(new Map());
+  const selectedPinObjectIdRef = useRef<number | null>(null);
 
   // ── Hotspot Analysis State ──────────────────────────────────────────────────
   const [showHotspotPanel, setShowHotspotPanel] = useState(false);
@@ -701,6 +706,79 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     selectedSectorFilters.size;
 
   const hasField = (fieldName: string) => availableFieldsRef.current.has(fieldName.toUpperCase());
+
+  const buildPinRenderer = () => ({
+    type: "unique-value",
+    field: PIN_SELECTED_FIELD,
+    defaultSymbol: {
+      type: "picture-marker",
+      url: PIN_CIRCLE_URL,
+      width: "26px",
+      height: "26px",
+      yoffset: "12px",
+    },
+    uniqueValueInfos: [
+      {
+        value: "1",
+        label: "Selected",
+        symbol: {
+          type: "picture-marker",
+          url: PIN_HEART_URL,
+          width: "30px",
+          height: "30px",
+          yoffset: "14px",
+        },
+      },
+    ],
+  });
+
+  const markSelectedPin = async (feature: any) => {
+    const layer = sourceLayerRef.current;
+    if (!layer || typeof layer.applyEdits !== "function") return;
+
+    const objectIdField = String(layer.objectIdField || "ObjectId");
+    const nextId = Number(
+      feature?.attributes?.[objectIdField] ??
+      feature?.attributes?.ObjectId ??
+      feature?.attributes?.OBJECTID
+    );
+    if (!Number.isFinite(nextId)) return;
+
+    const updates: any[] = [];
+
+    if (selectedPinObjectIdRef.current !== null && selectedPinObjectIdRef.current !== nextId) {
+      try {
+        const previous = await layer.queryFeatures({
+          where: `${objectIdField} = ${selectedPinObjectIdRef.current}`,
+          outFields: [objectIdField, PIN_SELECTED_FIELD],
+          returnGeometry: true,
+          num: 1,
+        });
+        const prevFeature = previous?.features?.[0];
+        if (prevFeature) {
+          prevFeature.attributes = {
+            ...prevFeature.attributes,
+            [PIN_SELECTED_FIELD]: 0,
+          };
+          updates.push(prevFeature);
+        }
+      } catch {
+        // Ignore previous reset failures and continue selecting the new pin.
+      }
+    }
+
+    const nextFeature = feature?.clone ? feature.clone() : feature;
+    nextFeature.attributes = {
+      ...nextFeature.attributes,
+      [PIN_SELECTED_FIELD]: 1,
+    };
+    updates.push(nextFeature);
+
+    if (updates.length > 0) {
+      await layer.applyEdits({ updateFeatures: updates });
+    }
+    selectedPinObjectIdRef.current = nextId;
+  };
 
   // ── Service Area Helpers ────────────────────────────────────────────────────
   const clearServiceAreaGraphics = () => {
@@ -1732,7 +1810,14 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             returnGeometry: true,
             num: 2000,
           });
-          const sourceFeatures = sourceFeatureSet?.features || [];
+          const sourceFeatures = (sourceFeatureSet?.features || []).map((feature: any) => {
+            const nextFeature = feature?.clone ? feature.clone() : feature;
+            nextFeature.attributes = {
+              ...nextFeature.attributes,
+              [PIN_SELECTED_FIELD]: 0,
+            };
+            return nextFeature;
+          });
           const maxObjectId = sourceFeatures.reduce((max: number, feature: any) => {
             const oid = Number(feature?.attributes?.ObjectId ?? feature?.attributes?.OBJECTID ?? 0);
             return Number.isFinite(oid) ? Math.max(max, oid) : max;
@@ -1743,25 +1828,39 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
           const regRows: RegistrationMapRow[] = Array.isArray(regData?.registrations) ? regData.registrations : [];
           const regGraphics = regRows
             .map((row, idx) => toRegistrationGraphic(GraphicModule, row, maxObjectId + idx + 1))
-            .filter((g): g is any => g !== null);
+            .filter((g): g is any => g !== null)
+            .map((graphic: any) => {
+              graphic.attributes = {
+                ...graphic.attributes,
+                [PIN_SELECTED_FIELD]: 0,
+              };
+              return graphic;
+            });
 
-          if (regGraphics.length > 0) {
-            combinedLayer = new FeatureLayer({
-              title: "Non-Profit Locations",
-              source: [...sourceFeatures, ...regGraphics],
-              fields: sourceLayer.fields,
-              objectIdField: sourceLayer.objectIdField || "ObjectId",
-              geometryType: "point",
-              spatialReference: sourceLayer.spatialReference,
-              outFields: ["*"],
-              popupEnabled: true,
-              popupTemplate: sourceLayer.popupTemplate,
-              renderer: sourceLayer.renderer,
-              featureReduction: clusterConfig,
+          const sourceFields = Array.isArray(sourceLayer.fields) ? [...sourceLayer.fields] : [];
+          if (!sourceFields.some((field: any) => String(field?.name) === PIN_SELECTED_FIELD)) {
+            sourceFields.push({
+              name: PIN_SELECTED_FIELD,
+              alias: "Pin Selected",
+              type: "small-integer",
             });
           }
+
+          combinedLayer = new FeatureLayer({
+            title: "Non-Profit Locations",
+            source: [...sourceFeatures, ...regGraphics],
+            fields: sourceFields,
+            objectIdField: sourceLayer.objectIdField || "ObjectId",
+            geometryType: "point",
+            spatialReference: sourceLayer.spatialReference,
+            outFields: ["*"],
+            popupEnabled: true,
+            popupTemplate: sourceLayer.popupTemplate,
+            renderer: buildPinRenderer(),
+            featureReduction: clusterConfig,
+          });
         } catch {
-          // If registrations are unavailable, keep map functional with hosted ArcGIS layer only.
+          // If cloning fails, keep map functional with hosted ArcGIS layer only.
         }
 
         sourceLayerRef.current = combinedLayer;
@@ -1831,6 +1930,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
           if (fromPopup) {
             setDetailOrg(fromPopup);
           }
+          void markSelectedPin(feature);
         });
 
         try {
@@ -1863,6 +1963,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       serviceAreaModulesRef.current = null;
       routeLayerRef.current = null;
       routeModulesRef.current = null;
+      selectedPinObjectIdRef.current = null;
       featureByIdRef.current.clear();
     };
   }, []);
