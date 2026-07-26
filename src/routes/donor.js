@@ -95,6 +95,48 @@ donorRouter.get("/search", async (req, res, next) => {
   }
 });
 
+// ── Hotspot Analysis ──────────────────────────────────────────────────────────
+
+const ALLOWED_HOTSPOT_FIELDS = new Set([
+  "E_POV150", "E_UNEMP", "E_HBURD", "E_NOHSDP", "E_UNINSUR",
+  "E_AGE65", "E_AGE17", "E_DISABL", "E_SNGPNT", "E_NOVEH"
+]);
+
+donorRouter.post("/hotspot-analysis", async (req, res, next) => {
+  try {
+    const { county, stAbbr, analysisFields } = req.body;
+
+    if (!county || typeof county !== "string") {
+      return res.status(400).json({ error: "Validation Error", message: "county is required" });
+    }
+    if (!stAbbr || typeof stAbbr !== "string") {
+      return res.status(400).json({ error: "Validation Error", message: "stAbbr is required" });
+    }
+    if (!Array.isArray(analysisFields) || analysisFields.length === 0) {
+      return res.status(400).json({ error: "Validation Error", message: "At least one analysisField is required" });
+    }
+
+    // Validate field names against allowed list
+    const invalidFields = analysisFields.filter((f) => !ALLOWED_HOTSPOT_FIELDS.has(f));
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        error: "Validation Error",
+        message: `Invalid analysis fields: ${invalidFields.join(", ")}`
+      });
+    }
+
+    const result = await arcgisService.runHotspotAnalysis({
+      county: county.trim(),
+      stAbbr: stAbbr.trim().toUpperCase(),
+      analysisFields
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 donorRouter.get("/:id", (req, res) => {
   const org = dataStore.getById(req.params.id);
   if (!org) {

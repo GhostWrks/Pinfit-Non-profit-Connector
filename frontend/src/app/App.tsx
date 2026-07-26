@@ -583,6 +583,30 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
   const availableFieldsRef = useRef<Set<string>>(new Set());
   const featureByIdRef = useRef<Map<string, any>>(new Map());
 
+  // ── Hotspot Analysis State ──────────────────────────────────────────────────
+  const [showHotspotPanel, setShowHotspotPanel] = useState(false);
+  const [hotspotCountySearch, setHotspotCountySearch] = useState("");
+  const [hotspotCountySuggestions, setHotspotCountySuggestions] = useState<Array<{county: string; stAbbr: string}>>([]);
+  const [hotspotSelectedCounty, setHotspotSelectedCounty] = useState<{county: string; stAbbr: string} | null>(null);
+  const [hotspotSelectedFields, setHotspotSelectedFields] = useState<Set<string>>(new Set());
+  const [hotspotLoading, setHotspotLoading] = useState(false);
+  const [hotspotError, setHotspotError] = useState("");
+  const [hotspotStatus, setHotspotStatus] = useState("");
+  const hotspotLayerRef = useRef<any>(null);
+
+  const HOTSPOT_FIELDS = [
+    { key: "E_POV150", label: "Poverty below 150%" },
+    { key: "E_UNEMP", label: "Civilian 16+ Unemployed" },
+    { key: "E_HBURD", label: "Housing Cost Burden" },
+    { key: "E_NOHSDP", label: "No High School Diploma" },
+    { key: "E_UNINSUR", label: "Uninsured" },
+    { key: "E_AGE65", label: "Age 65+" },
+    { key: "E_AGE17", label: "Age 17 and Under" },
+    { key: "E_DISABL", label: "Disability" },
+    { key: "E_SNGPNT", label: "Single-Parent Households" },
+    { key: "E_NOVEH", label: "No Vehicle" },
+  ];
+
   const activeFilterCount =
     (queryText.trim() ? 1 : 0) +
     (orgNameFilter.trim() ? 1 : 0) +
@@ -933,6 +957,271 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       }
       return next;
     });
+  };
+
+  // ── Hotspot Analysis Logic ──────────────────────────────────────────────────
+  const SVI_LAYER_URL = "https://services8.arcgis.com/LLNIdHmmdjO2qQ5q/arcgis/rest/services/Vulnerable_Population_Estimates/FeatureServer/0";
+
+  const hotspotCountySearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleHotspotCountySearch = (value: string) => {
+    setHotspotCountySearch(value);
+    if (hotspotCountySearchDebounceRef.current) {
+      clearTimeout(hotspotCountySearchDebounceRef.current);
+    }
+    if (!value.trim()) {
+      setHotspotCountySuggestions([]);
+      return;
+    }
+    hotspotCountySearchDebounceRef.current = setTimeout(async () => {
+      try {
+        const encoded = encodeURIComponent(value.trim().toUpperCase());
+        const url = `${SVI_LAYER_URL}/query?where=UPPER(COUNTY)+LIKE+'%25${encoded}%25'&outFields=COUNTY,ST_ABBR&returnDistinctValues=true&returnGeometry=false&resultRecordCount=20&f=json`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const features = data.features || [];
+        const seen = new Set<string>();
+        const suggestions: Array<{county: string; stAbbr: string}> = [];
+        for (const f of features) {
+          const key = `${f.attributes.COUNTY}|${f.attributes.ST_ABBR}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            suggestions.push({ county: f.attributes.COUNTY, stAbbr: f.attributes.ST_ABBR });
+          }
+        }
+        setHotspotCountySuggestions(suggestions);
+      } catch {
+        setHotspotCountySuggestions([]);
+      }
+    }, 300);
+  };
+
+  const selectHotspotCounty = (item: {county: string; stAbbr: string}) => {
+    setHotspotSelectedCounty(item);
+    setHotspotCountySearch("");
+    setHotspotCountySuggestions([]);
+  };
+
+  const clearHotspotCounty = () => {
+    setHotspotSelectedCounty(null);
+    setHotspotSelectedFields(new Set());
+    clearHotspotLayer();
+  };
+
+  const toggleHotspotField = (fieldKey: string) => {
+    setHotspotSelectedFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldKey)) {
+        next.delete(fieldKey);
+      } else {
+        next.add(fieldKey);
+      }
+      return next;
+    });
+  };
+
+  const clearHotspotLayer = () => {
+    if (hotspotLayerRef.current && mapViewRef.current) {
+      mapViewRef.current.map.remove(hotspotLayerRef.current);
+      hotspotLayerRef.current = null;
+    }
+    setHotspotStatus("");
+    setHotspotError("");
+  };
+
+  const runHotspotAnalysis = async () => {
+    if (!hotspotSelectedCounty || hotspotSelectedFields.size === 0) return;
+
+    setHotspotLoading(true);
+    setHotspotError("");
+    setHotspotStatus("Submitting analysis job...");
+    clearHotspotLayer();
+
+    try {
+      const res = await fetch("/api/donor/hotspot-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          county: hotspotSelectedCounty.county,
+          stAbbr: hotspotSelectedCounty.stAbbr,
+          analysisFields: Array.from(hotspotSelectedFields),
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || `Server error ${res.status}`);
+      }
+
+      setHotspotStatus("Processing results...");
+      const data = await res.json();
+      await renderHotspotResults(data);
+      setHotspotStatus("Analysis complete");
+    } catch (err: any) {
+      setHotspotError(err?.message || "Hotspot analysis failed");
+      setHotspotStatus("");
+    } finally {
+      setHotspotLoading(false);
+    }
+  };
+
+  const renderHotspotResults = async (data: any) => {
+    if (!mapViewRef.current || !window.require) return;
+
+    const [FeatureLayer, Graphic, Polygon] = await new Promise<any[]>((resolve, reject) => {
+      window.require!(
+        ["esri/layers/FeatureLayer", "esri/Graphic", "esri/geometry/Polygon"],
+        (...modules: any[]) => resolve(modules),
+        reject
+      );
+    });
+
+    const featureCollection = data.result;
+    if (!featureCollection) {
+      setHotspotError("No result data returned from analysis");
+      console.error("[Hotspot] data.result is empty:", data);
+      return;
+    }
+
+    // The result could be { featureSet, layerDefinition } or { url } or nested differently
+    // Log for debugging
+    console.log("[Hotspot] Raw result structure:", JSON.stringify(Object.keys(featureCollection)));
+    console.log("[Hotspot] featureSet keys:", featureCollection.featureSet ? Object.keys(featureCollection.featureSet) : "NO featureSet");
+
+    const featureSet = featureCollection.featureSet;
+    if (!featureSet?.features?.length) {
+      setHotspotError("No features in the analysis result. Check console for details.");
+      console.error("[Hotspot] featureCollection:", featureCollection);
+      return;
+    }
+
+    const layerDef = featureCollection.layerDefinition || {};
+
+    // Log first feature to understand geometry and attribute structure
+    console.log("[Hotspot] First feature attributes:", JSON.stringify(featureSet.features[0]?.attributes));
+    console.log("[Hotspot] First feature geometry keys:", featureSet.features[0]?.geometry ? Object.keys(featureSet.features[0].geometry) : "NO geometry");
+    console.log("[Hotspot] spatialReference:", JSON.stringify(featureSet.spatialReference || featureSet.features[0]?.geometry?.spatialReference));
+    console.log("[Hotspot] Feature count:", featureSet.features.length);
+
+    // Determine the confidence bin field name (varies by response)
+    const sampleAttrs = featureSet.features[0]?.attributes || {};
+    const confidenceBinField =
+      "Confidence_Bin" in sampleAttrs ? "Confidence_Bin" :
+      "Gi_Bin" in sampleAttrs ? "Gi_Bin" :
+      Object.keys(sampleAttrs).find((k) => /bin/i.test(k)) || null;
+
+    console.log("[Hotspot] Detected confidence bin field:", confidenceBinField);
+    if (confidenceBinField) {
+      console.log("[Hotspot] Sample bin value:", sampleAttrs[confidenceBinField], "type:", typeof sampleAttrs[confidenceBinField]);
+    }
+
+    // Determine spatial reference from the featureSet or features
+    const sr = featureSet.spatialReference ||
+      featureSet.features[0]?.geometry?.spatialReference ||
+      { wkid: 102100 };
+
+    const graphics: any[] = [];
+    for (let i = 0; i < featureSet.features.length; i++) {
+      const f = featureSet.features[i];
+      if (!f.geometry || !f.geometry.rings) {
+        console.warn(`[Hotspot] Feature ${i} has no rings, skipping`);
+        continue;
+      }
+
+      const geom = new Polygon({
+        rings: f.geometry.rings,
+        spatialReference: f.geometry.spatialReference || sr,
+      });
+
+      graphics.push(new Graphic({
+        geometry: geom,
+        attributes: { ...f.attributes, OBJECTID: f.attributes.OBJECTID ?? f.attributes.FID ?? i },
+      }));
+    }
+
+    if (graphics.length === 0) {
+      setHotspotError("All features had invalid geometry");
+      return;
+    }
+
+    console.log("[Hotspot] Created", graphics.length, "graphics");
+
+    const fields = (layerDef.fields || []).map((f: any) => ({
+      name: f.name,
+      alias: f.alias || f.name,
+      type: f.type === "esriFieldTypeDouble" ? "double" :
+            f.type === "esriFieldTypeInteger" ? "integer" :
+            f.type === "esriFieldTypeSmallInteger" ? "small-integer" :
+            f.type === "esriFieldTypeString" ? "string" :
+            f.type === "esriFieldTypeOID" ? "oid" : "string",
+    }));
+
+    // Ensure OBJECTID field exists
+    if (!fields.find((f: any) => f.name === "OBJECTID")) {
+      fields.unshift({ name: "OBJECTID", alias: "OBJECTID", type: "oid" });
+    }
+
+    // Ensure the confidence bin field is in the fields list
+    if (confidenceBinField && !fields.find((f: any) => f.name === confidenceBinField)) {
+      fields.push({ name: confidenceBinField, alias: confidenceBinField, type: "integer" });
+    }
+
+    // If no layerDefinition fields came back, build fields from sample attributes
+    if (fields.length <= 1) {
+      for (const key of Object.keys(sampleAttrs)) {
+        if (key === "OBJECTID") continue;
+        const val = sampleAttrs[key];
+        fields.push({
+          name: key,
+          alias: key,
+          type: typeof val === "number" ? (Number.isInteger(val) ? "integer" : "double") : "string",
+        });
+      }
+    }
+
+    const renderer = confidenceBinField ? {
+      type: "unique-value",
+      field: confidenceBinField,
+      defaultSymbol: { type: "simple-fill", color: [245, 235, 220, 100], outline: { color: [200, 200, 200, 80], width: 0.5 } },
+      uniqueValueInfos: [
+        { value: "3", symbol: { type: "simple-fill", color: [180, 0, 0, 200], outline: { color: [120, 0, 0, 200], width: 0.5 } }, label: "Hot Spot (99% Confidence)" },
+        { value: "2", symbol: { type: "simple-fill", color: [240, 60, 60, 180], outline: { color: [180, 40, 40, 180], width: 0.5 } }, label: "Hot Spot (95% Confidence)" },
+        { value: "1", symbol: { type: "simple-fill", color: [255, 140, 140, 150], outline: { color: [220, 100, 100, 150], width: 0.5 } }, label: "Hot Spot (90% Confidence)" },
+        { value: "0", symbol: { type: "simple-fill", color: [245, 235, 220, 100], outline: { color: [200, 200, 200, 80], width: 0.5 } }, label: "Not Significant" },
+        { value: "-1", symbol: { type: "simple-fill", color: [140, 140, 255, 150], outline: { color: [100, 100, 220, 150], width: 0.5 } }, label: "Cold Spot (90% Confidence)" },
+        { value: "-2", symbol: { type: "simple-fill", color: [60, 60, 240, 180], outline: { color: [40, 40, 180, 180], width: 0.5 } }, label: "Cold Spot (95% Confidence)" },
+        { value: "-3", symbol: { type: "simple-fill", color: [0, 0, 180, 200], outline: { color: [0, 0, 120, 200], width: 0.5 } }, label: "Cold Spot (99% Confidence)" },
+      ],
+    } : {
+      // Fallback: just render everything with a solid color so we can at least SEE it
+      type: "simple",
+      symbol: { type: "simple-fill", color: [255, 0, 0, 150], outline: { color: [200, 0, 0, 200], width: 1 } },
+    };
+
+    const hotspotLayer = new FeatureLayer({
+      source: graphics,
+      objectIdField: "OBJECTID",
+      fields,
+      geometryType: "polygon",
+      spatialReference: sr,
+      opacity: 0.5,
+      title: `Hotspot Analysis: ${hotspotSelectedCounty?.county}, ${hotspotSelectedCounty?.stAbbr}`,
+      renderer,
+    });
+
+    mapViewRef.current.map.add(hotspotLayer);
+    hotspotLayerRef.current = hotspotLayer;
+
+    // Zoom to the results extent
+    try {
+      const extent = await hotspotLayer.queryExtent({ where: "1=1" });
+      console.log("[Hotspot] Layer extent:", JSON.stringify(extent?.extent?.toJSON?.() || extent));
+      if (extent?.extent) {
+        await mapViewRef.current.goTo(extent.extent.expand(1.1));
+      }
+    } catch {
+      // Non-critical
+    }
   };
 
   const selectedOrg = detailOrg ?? results.find((item) => item.id === selectedOrgId) ?? null;
@@ -1309,6 +1598,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
+      {/* ── Map Container ── */}
       <div className="relative mx-4 mb-3 rounded-2xl overflow-hidden shadow-md border" style={{ height: 500, borderColor: `${C.blue}18` }}>
         <div ref={mapContainerRef} className="absolute inset-0" />
         <div className="absolute bottom-3 right-3 text-white text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 rounded-lg z-10" style={{ background: C.navy }}>
@@ -1319,6 +1609,172 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             {error}
           </div>
         ) : null}
+      </div>
+
+      {/* ── Hotspot Analysis Panel ── */}
+      <div className="mx-4 mb-3">
+        <button
+          type="button"
+          onClick={() => setShowHotspotPanel((prev) => !prev)}
+          className="rounded-xl border px-4 py-2.5 text-xs font-bold flex items-center gap-2 transition-colors"
+          style={{
+            borderColor: showHotspotPanel ? C.rose : `${C.navy}20`,
+            color: showHotspotPanel ? C.rose : C.navy,
+            background: showHotspotPanel ? `${C.rose}08` : "rgba(255,255,255,0.9)",
+          }}
+        >
+          <TrendingUp size={14} />
+          Hotspot Analysis
+          <ChevronRight size={12} style={{ transform: showHotspotPanel ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+        </button>
+
+        <AnimatePresence>
+          {showHotspotPanel && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="mt-2 rounded-2xl border bg-white p-4 space-y-4" style={{ borderColor: `${C.navy}12` }}>
+                {/* County Search */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1.5" style={{ color: `${C.navy}45` }}>County</p>
+                  {hotspotSelectedCounty ? (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold"
+                        style={{ background: `${C.blue}12`, color: C.blue }}
+                      >
+                        {hotspotSelectedCounty.county}, {hotspotSelectedCounty.stAbbr}
+                        <button
+                          type="button"
+                          onClick={clearHotspotCounty}
+                          className="hover:opacity-60"
+                          aria-label="Clear county"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={hotspotCountySearch}
+                        onChange={(e) => handleHotspotCountySearch(e.target.value)}
+                        placeholder="Search county (e.g. San Bernardino)"
+                        className="w-full rounded-lg border bg-white px-3 py-2 text-xs outline-none"
+                        style={{ borderColor: `${C.navy}15`, color: C.navy }}
+                      />
+                      {hotspotCountySuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 z-20 rounded-lg border bg-white shadow-lg max-h-48 overflow-auto" style={{ borderColor: `${C.navy}15` }}>
+                          {hotspotCountySuggestions.map((item) => (
+                            <button
+                              key={`${item.county}-${item.stAbbr}`}
+                              type="button"
+                              onClick={() => selectHotspotCounty(item)}
+                              className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+                              style={{ color: C.navy }}
+                            >
+                              {item.county}, {item.stAbbr}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Demographic Fields */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1.5" style={{ color: `${C.navy}45` }}>
+                    Demographic Columns {hotspotSelectedFields.size > 0 && `(${hotspotSelectedFields.size} selected)`}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {HOTSPOT_FIELDS.map((field) => (
+                      <label
+                        key={field.key}
+                        className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs cursor-pointer border transition-colors"
+                        style={{
+                          borderColor: hotspotSelectedFields.has(field.key) ? C.blue : `${C.navy}10`,
+                          background: hotspotSelectedFields.has(field.key) ? `${C.blue}08` : "transparent",
+                          color: C.navy,
+                          opacity: hotspotSelectedCounty ? 1 : 0.4,
+                          pointerEvents: hotspotSelectedCounty ? "auto" : "none",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={hotspotSelectedFields.has(field.key)}
+                          onChange={() => toggleHotspotField(field.key)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          disabled={!hotspotSelectedCounty}
+                        />
+                        <span className="font-medium">{field.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => void runHotspotAnalysis()}
+                    disabled={hotspotLoading || !hotspotSelectedCounty || hotspotSelectedFields.size === 0}
+                    className="rounded-lg px-4 py-2 text-xs font-bold transition-opacity disabled:opacity-40"
+                    style={{ background: C.blue, color: "white" }}
+                  >
+                    {hotspotLoading ? "Running..." : "Run Analysis"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearHotspotLayer}
+                    className="rounded-lg px-3 py-2 text-xs font-bold border"
+                    style={{ borderColor: `${C.navy}20`, color: C.navy }}
+                  >
+                    Clear
+                  </button>
+                  {hotspotStatus && (
+                    <span className="text-[11px] font-medium" style={{ color: `${C.navy}60` }}>{hotspotStatus}</span>
+                  )}
+                </div>
+
+                {/* Error */}
+                {hotspotError && (
+                  <div className="rounded-lg px-3 py-2 text-xs text-white" style={{ background: C.rose }}>
+                    {hotspotError}
+                  </div>
+                )}
+
+                {/* Legend */}
+                {hotspotLayerRef.current && (
+                  <div className="pt-2 border-t" style={{ borderColor: `${C.navy}10` }}>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-2" style={{ color: `${C.navy}45` }}>Legend (50% opacity)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { color: "rgb(180,0,0)", label: "Hot (99%)" },
+                        { color: "rgb(240,60,60)", label: "Hot (95%)" },
+                        { color: "rgb(255,140,140)", label: "Hot (90%)" },
+                        { color: "rgb(245,235,220)", label: "Not Significant" },
+                        { color: "rgb(140,140,255)", label: "Cold (90%)" },
+                        { color: "rgb(60,60,240)", label: "Cold (95%)" },
+                        { color: "rgb(0,0,180)", label: "Cold (99%)" },
+                      ].map((item) => (
+                        <div key={item.label} className="flex items-center gap-1">
+                          <span className="w-3 h-3 rounded-sm" style={{ background: item.color, opacity: 0.7 }} />
+                          <span className="text-[10px]" style={{ color: `${C.navy}70` }}>{item.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>
