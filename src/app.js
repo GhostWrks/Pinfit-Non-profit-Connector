@@ -35,7 +35,7 @@ export const createApp = () => {
           formAction: ["'self'"],
           frameAncestors: ["'self'"],
           objectSrc: ["'none'"],
-          scriptSrc: ["'self'", "https://js.arcgis.com"],
+          scriptSrc: ["'self'", "https://js.arcgis.com", "'wasm-unsafe-eval'"],
           scriptSrcAttr: ["'none'"],
           styleSrc: [
             "'self'",
