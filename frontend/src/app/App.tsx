@@ -2539,8 +2539,402 @@ const STATS = [
 ];
 
 // ── OrgDashboard ───────────────────────────────────────────────────────────────
+// ── UpdateNeedsForm ─────────────────────────────────────────────────────────
+function UpdateNeedsForm({ onBack }: { onBack: () => void }) {
+  const [needs, setNeeds] = useState("");
+  const [volunteersNeeded, setVolunteersNeeded] = useState(false);
+  const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
+  const [urgencyScore, setUrgencyScore] = useState(50);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+
+    const needsArray = needs.split(",").map((n) => n.trim()).filter(Boolean);
+    if (needsArray.length === 0) {
+      setError("Please enter at least one need (comma-separated).");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/nonprofit/needs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer demo-token" },
+        body: JSON.stringify({ needs: needsArray, volunteersNeeded, priority, urgencyScore }),
+      });
+      if (res.ok) {
+        setMessage("Needs updated successfully!");
+        setNeeds("");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || "Failed to update needs.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div key="needs-form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="px-4 py-2 pb-28 space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="w-8 h-8 rounded-full border flex items-center justify-center" style={{ borderColor: `${C.navy}20`, color: C.navy }}>
+          <ArrowLeft size={14} />
+        </button>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Manage</p>
+          <h2 className="text-xl font-extrabold" style={{ color: C.navy }}>Update Needs List</h2>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="rounded-2xl bg-white/90 shadow-sm border p-4 space-y-4" style={{ borderColor: `${C.navy}08` }}>
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Needs (comma-separated)</label>
+          <textarea
+            value={needs}
+            onChange={(e) => setNeeds(e.target.value)}
+            placeholder="e.g. Canned food, Winter coats, Diapers"
+            className="w-full mt-1 rounded-xl border bg-white px-4 py-3 text-sm outline-none resize-none"
+            style={{ borderColor: `${C.navy}15`, color: C.navy, minHeight: 80 }}
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Volunteers Needed</label>
+          <button type="button" onClick={() => setVolunteersNeeded((v) => !v)}
+            className="w-11 h-6 rounded-full flex items-center px-0.5 transition-colors"
+            style={{ background: volunteersNeeded ? C.blue : `${C.navy}15` }}>
+            <div className="w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: volunteersNeeded ? "translateX(20px)" : "translateX(0)" }} />
+          </button>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Priority</label>
+          <div className="flex gap-2 mt-1">
+            {(["low", "medium", "high"] as const).map((p) => (
+              <button key={p} type="button" onClick={() => setPriority(p)}
+                className="rounded-lg px-4 py-2 text-xs font-bold border capitalize"
+                style={{
+                  borderColor: priority === p ? C.rose : `${C.navy}15`,
+                  color: priority === p ? C.rose : C.navy,
+                  background: priority === p ? `${C.rose}10` : "transparent",
+                }}>
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Urgency Score: {urgencyScore}</label>
+          <input type="range" min={1} max={100} value={urgencyScore} onChange={(e) => setUrgencyScore(Number(e.target.value))}
+            className="w-full mt-1" />
+        </div>
+
+        {error && <p className="text-xs font-semibold" style={{ color: C.rose }}>{error}</p>}
+        {message && <p className="text-xs font-semibold" style={{ color: C.green }}>{message}</p>}
+
+        <button type="submit" disabled={submitting}
+          className="w-full py-3 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50"
+          style={{ background: C.blue }}>
+          {submitting ? "Saving..." : "Update Needs"}
+        </button>
+      </form>
+    </motion.div>
+  );
+}
+
+// ── VolunteerShiftForm ──────────────────────────────────────────────────────────
+function VolunteerShiftForm({ onBack }: { onBack: () => void }) {
+  const [form, setForm] = useState({
+    organizationName: "",
+    roleTitle: "",
+    shiftDate: "",
+    startTime: "",
+    endTime: "",
+    volunteersNeeded: 1,
+    location: "",
+    notes: "",
+    contactName: "",
+    contactEmail: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const update = (field: string, value: string | number) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+
+    if (!form.organizationName || !form.roleTitle || !form.shiftDate || !form.startTime || !form.endTime || !form.location) {
+      setError("Please fill in all required fields.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/volunteer-shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, volunteersNeeded: Number(form.volunteersNeeded) }),
+      });
+      if (res.ok) {
+        setMessage("Volunteer shift created!");
+        setForm({ organizationName: "", roleTitle: "", shiftDate: "", startTime: "", endTime: "", volunteersNeeded: 1, location: "", notes: "", contactName: "", contactEmail: "" });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || "Failed to create shift.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div key="shift-form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="px-4 py-2 pb-28 space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="w-8 h-8 rounded-full border flex items-center justify-center" style={{ borderColor: `${C.navy}20`, color: C.navy }}>
+          <ArrowLeft size={14} />
+        </button>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Schedule</p>
+          <h2 className="text-xl font-extrabold" style={{ color: C.navy }}>New Volunteer Shift</h2>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="rounded-2xl bg-white/90 shadow-sm border p-4 space-y-3" style={{ borderColor: `${C.navy}08` }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Organization Name *</label>
+            <input type="text" value={form.organizationName} onChange={(e) => update("organizationName", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Role Title *</label>
+            <input type="text" value={form.roleTitle} onChange={(e) => update("roleTitle", e.target.value)} placeholder="e.g. Food Sorter"
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Shift Date *</label>
+            <input type="date" value={form.shiftDate} onChange={(e) => update("shiftDate", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-bold" style={{ color: C.navy }}>Start *</label>
+              <input type="time" value={form.startTime} onChange={(e) => update("startTime", e.target.value)}
+                className="w-full mt-1 rounded-xl border bg-white px-3 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+            </div>
+            <div>
+              <label className="text-xs font-bold" style={{ color: C.navy }}>End *</label>
+              <input type="time" value={form.endTime} onChange={(e) => update("endTime", e.target.value)}
+                className="w-full mt-1 rounded-xl border bg-white px-3 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Volunteers Needed *</label>
+            <input type="number" min={1} max={500} value={form.volunteersNeeded} onChange={(e) => update("volunteersNeeded", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Location *</label>
+            <input type="text" value={form.location} onChange={(e) => update("location", e.target.value)} placeholder="e.g. Main warehouse"
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Contact Name</label>
+            <input type="text" value={form.contactName} onChange={(e) => update("contactName", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Contact Email</label>
+            <input type="email" value={form.contactEmail} onChange={(e) => update("contactEmail", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Notes</label>
+          <textarea value={form.notes} onChange={(e) => update("notes", e.target.value)} placeholder="Any additional details..."
+            className="w-full mt-1 rounded-xl border bg-white px-4 py-3 text-sm outline-none resize-none" style={{ borderColor: `${C.navy}15`, color: C.navy, minHeight: 60 }} />
+        </div>
+
+        {error && <p className="text-xs font-semibold" style={{ color: C.rose }}>{error}</p>}
+        {message && <p className="text-xs font-semibold" style={{ color: C.green }}>{message}</p>}
+
+        <button type="submit" disabled={submitting}
+          className="w-full py-3 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50"
+          style={{ background: C.rose }}>
+          {submitting ? "Creating..." : "Create Shift"}
+        </button>
+      </form>
+    </motion.div>
+  );
+}
+
+// ── BroadcastForm ───────────────────────────────────────────────────────────────
+function BroadcastForm({ onBack }: { onBack: () => void }) {
+  const [form, setForm] = useState({
+    senderOrganization: "",
+    recipients: "",
+    title: "",
+    category: "General",
+    urgency: "Normal" as "Low" | "Normal" | "High" | "Critical",
+    location: "",
+    startDate: "",
+    endDate: "",
+    message: "",
+    contactName: "",
+    contactEmail: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [resultMessage, setResultMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const update = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setResultMessage("");
+
+    const recipientsList = form.recipients.split(",").map((r) => r.trim()).filter(Boolean);
+    if (!form.senderOrganization || recipientsList.length === 0 || !form.title || !form.message) {
+      setError("Please fill in sender, at least one recipient, title, and message.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/broadcasts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, recipients: recipientsList }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResultMessage(`Broadcast sent to ${data.createdCount} organization(s)!`);
+        setForm({ senderOrganization: "", recipients: "", title: "", category: "General", urgency: "Normal", location: "", startDate: "", endDate: "", message: "", contactName: "", contactEmail: "" });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || "Failed to send broadcast.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div key="broadcast-form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="px-4 py-2 pb-28 space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="w-8 h-8 rounded-full border flex items-center justify-center" style={{ borderColor: `${C.navy}20`, color: C.navy }}>
+          <ArrowLeft size={14} />
+        </button>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Communicate</p>
+          <h2 className="text-xl font-extrabold" style={{ color: C.navy }}>Broadcast to Nearby Orgs</h2>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="rounded-2xl bg-white/90 shadow-sm border p-4 space-y-3" style={{ borderColor: `${C.navy}08` }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Your Organization *</label>
+            <input type="text" value={form.senderOrganization} onChange={(e) => update("senderOrganization", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Recipients (comma-separated) *</label>
+            <input type="text" value={form.recipients} onChange={(e) => update("recipients", e.target.value)} placeholder="e.g. Org A, Org B"
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Title *</label>
+            <input type="text" value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="Brief title for your broadcast"
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Category</label>
+            <input type="text" value={form.category} onChange={(e) => update("category", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Urgency</label>
+            <div className="flex gap-1.5 mt-1">
+              {(["Low", "Normal", "High", "Critical"] as const).map((u) => (
+                <button key={u} type="button" onClick={() => update("urgency", u)}
+                  className="rounded-lg px-3 py-2 text-[11px] font-bold border"
+                  style={{
+                    borderColor: form.urgency === u ? (u === "Critical" || u === "High" ? C.rose : C.blue) : `${C.navy}15`,
+                    color: form.urgency === u ? (u === "Critical" || u === "High" ? C.rose : C.blue) : C.navy,
+                    background: form.urgency === u ? (u === "Critical" || u === "High" ? `${C.rose}10` : `${C.blue}10`) : "transparent",
+                  }}>
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Location</label>
+            <input type="text" value={form.location} onChange={(e) => update("location", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Start Date</label>
+            <input type="date" value={form.startDate} onChange={(e) => update("startDate", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>End Date</label>
+            <input type="date" value={form.endDate} onChange={(e) => update("endDate", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Contact Name</label>
+            <input type="text" value={form.contactName} onChange={(e) => update("contactName", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Contact Email</label>
+            <input type="email" value={form.contactEmail} onChange={(e) => update("contactEmail", e.target.value)}
+              className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Message *</label>
+          <textarea value={form.message} onChange={(e) => update("message", e.target.value)} placeholder="Describe what you need help with..."
+            className="w-full mt-1 rounded-xl border bg-white px-4 py-3 text-sm outline-none resize-none" style={{ borderColor: `${C.navy}15`, color: C.navy, minHeight: 90 }} />
+        </div>
+
+        {error && <p className="text-xs font-semibold" style={{ color: C.rose }}>{error}</p>}
+        {resultMessage && <p className="text-xs font-semibold" style={{ color: C.green }}>{resultMessage}</p>}
+
+        <button type="submit" disabled={submitting}
+          className="w-full py-3 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50"
+          style={{ background: C.blue }}>
+          {submitting ? "Sending..." : "Send Broadcast"}
+        </button>
+      </form>
+    </motion.div>
+  );
+}
+
+// ── OrgDashboard ───────────────────────────────────────────────────────────────
 function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: () => void }) {
-  const [tab, setTab] = useState<"dashboard" | "map" | "settings">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "map" | "settings" | "needs" | "shifts" | "broadcasts">("dashboard");
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState(VOLUNTEER_NOTIFICATIONS);
   const unread = notifications.filter((n) => !n.read).length;
@@ -2653,11 +3047,11 @@ function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: ()
                   <h2 className="text-base font-extrabold" style={{ color: C.navy }}>Manage Your Org</h2>
                 </div>
                 {[
-                  { label: "Update needs list",       sub: "Tell donors what you need most",    icon: CheckCircle2, color: C.green },
-                  { label: "Schedule volunteer shift", sub: "Open a new slot for sign-ups",      icon: Users,        color: C.rose  },
-                  { label: "Broadcast to nearby orgs",  sub: "Send an alert to partner nonprofits", icon: Heart,       color: C.blue  },
+                  { label: "Update needs list",       sub: "Tell donors what you need most",    icon: CheckCircle2, color: C.green, target: "needs" as const },
+                  { label: "Schedule volunteer shift", sub: "Open a new slot for sign-ups",      icon: Users,        color: C.rose,  target: "shifts" as const },
+                  { label: "Broadcast to nearby orgs",  sub: "Send an alert to partner nonprofits", icon: Heart,       color: C.blue,  target: "broadcasts" as const },
                 ].map((action) => (
-                  <button key={action.label} className="w-full flex items-center gap-3 px-4 py-3.5 border-b last:border-0 transition-colors text-left hover:opacity-80"
+                  <button key={action.label} onClick={() => setTab(action.target)} className="w-full flex items-center gap-3 px-4 py-3.5 border-b last:border-0 transition-colors text-left hover:opacity-80"
                     style={{ borderColor: `${C.navy}06` }}>
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${action.color}18` }}>
                       <action.icon size={16} style={{ color: action.color }} />
@@ -2721,6 +3115,18 @@ function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: ()
                 Sign Out
               </button>
             </motion.div>
+          )}
+
+          {tab === "needs" && (
+            <UpdateNeedsForm onBack={() => setTab("dashboard")} />
+          )}
+
+          {tab === "shifts" && (
+            <VolunteerShiftForm onBack={() => setTab("dashboard")} />
+          )}
+
+          {tab === "broadcasts" && (
+            <BroadcastForm onBack={() => setTab("dashboard")} />
           )}
         </AnimatePresence>
       </div>
