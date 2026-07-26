@@ -3894,7 +3894,7 @@ export default function App() {
   }, []);
 
   const LOGO_BASE = 100;
-  const { W: logoW, totalH: logoH } = logoGeom(LOGO_BASE);
+  const LANDING_LOGO_SIZE = 235;
 
   const handleOrgSignIn = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -3930,15 +3930,31 @@ export default function App() {
 
       {/* ── Loading / Home ── */}
       {(screen === "loading" || screen === "home") && (
-        <div className="relative flex flex-col items-center gap-8">
+        <div className="relative flex flex-col items-center gap-0">
+          <motion.h1
+            animate={{ scale: logoScale <= 1.05 ? 1 : 0.92, opacity: 1 }}
+            transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
+            className="mb-0.5 text-[42px] leading-none font-semibold tracking-[0.06em]"
+            style={{ color: C.navy, fontFamily: "'Fredoka', 'Nunito', sans-serif" }}
+          >
+            PINHELP
+          </motion.h1>
+
           <div className="relative flex items-center justify-center"
             style={{
-              width: logoW * logoScale + 60,
-              height: logoH * logoScale + 60,
+              width: LANDING_LOGO_SIZE * logoScale + 60,
+              height: LANDING_LOGO_SIZE * logoScale + 34,
               transition: "width 0.6s cubic-bezier(0.34,1.56,0.64,1), height 0.6s cubic-bezier(0.34,1.56,0.64,1)",
             }}>
             <motion.div animate={{ scale: logoScale }} transition={{ duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }} style={{ originX: 0.5, originY: 0.5 }}>
-              <PinhelpLogo size={LOGO_BASE} />
+              <img
+                src="/pinhelp-landing-logo.svg"
+                alt="PinHelp"
+                width={LANDING_LOGO_SIZE}
+                height={LANDING_LOGO_SIZE}
+                className="select-none object-contain"
+                draggable={false}
+              />
             </motion.div>
             <AnimatePresence>
               {showRing && <LoadingRing size={LOGO_BASE} />}
