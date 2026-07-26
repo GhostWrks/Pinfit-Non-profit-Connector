@@ -12,6 +12,9 @@ import { donorRouter } from "./routes/donor.js";
 import { authRouter } from "./routes/auth.js";
 import { nonprofitRouter } from "./routes/nonprofit.js";
 import { analyticsRouter } from "./routes/analytics.js";
+import { registrationsRouter } from "./routes/registrations.js";
+import { volunteerShiftsRouter } from "./routes/volunteerShifts.js";
+import { broadcastsRouter } from "./routes/broadcasts.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandlers.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -79,6 +82,9 @@ export const createApp = () => {
   app.use("/api/auth", authRouter);
   app.use("/api/nonprofit", nonprofitRouter);
   app.use("/api/analytics", analyticsRouter);
+  app.use("/api/registrations", registrationsRouter);
+  app.use("/api/volunteer-shifts", volunteerShiftsRouter);
+  app.use("/api/broadcasts", broadcastsRouter);
 
   app.get("/", (req, res) => {
     res.sendFile(path.join(webRootPath, "index.html"));

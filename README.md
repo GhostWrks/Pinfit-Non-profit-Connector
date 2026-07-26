@@ -64,6 +64,12 @@ Use one of these credentials:
 - `GET /api/donor/:id`
 - `GET /api/donor/:id/route?originLat=34.05&originLon=-117.18&mode=drive-time`
 
+### Organization Registrations (CSV-backed)
+
+- `GET /api/registrations`
+- `POST /api/registrations`
+- `PUT /api/registrations/:id`
+
 ### Auth
 
 - `POST /api/auth/nonprofit/login`

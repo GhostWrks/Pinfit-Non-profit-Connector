@@ -8,4 +8,23 @@
   Run `npm i` to install the dependencies.
 
   Run `npm run dev` to start the development server.
+
+  ## Organization registrations (CSV-backed)
+
+  After organization sign-in, open Register New Organization from the dashboard.
+
+  The form submits to:
+
+  - POST /api/registrations
+  - PUT /api/registrations/:id
+
+  Data is persisted in project CSV:
+
+  - data/organization_registrations.csv
+
+  The donor map reads registrations through:
+
+  - GET /api/registrations
+
+  and renders them as additional map markers and result cards.
   

@@ -1,0 +1,2 @@
+id,broadcastId,senderOrganization,recipientOrganization,title,category,urgency,location,startDate,endDate,message,contactName,contactEmail,responseStatus,responseNote,respondedAt,createdAt,updatedAt
+broadcast-entry-1785021811669-44217,broadcast-1785021811669-8808,admin,Redlands Child Care,Food Oranization,Need Supplies,High,Irvine,2026-07-25,2026-07-26,Need food supplies for children,Abc,abc@gmail.com,pending,,,2026-07-25T23:23:31.669Z,2026-07-25T23:23:31.669Z
