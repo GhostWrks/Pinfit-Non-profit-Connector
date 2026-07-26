@@ -639,6 +639,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
   const [hotspotLoading, setHotspotLoading] = useState(false);
   const [hotspotError, setHotspotError] = useState("");
   const [hotspotStatus, setHotspotStatus] = useState("");
+  const [hotspotLayerActive, setHotspotLayerActive] = useState(false);
   const hotspotLayerRef = useRef<any>(null);
 
   const HOTSPOT_FIELDS = [
@@ -763,15 +764,19 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       const result = await serviceArea.solve(SERVICE_AREA_URL, params);
 
       if (result.serviceAreaPolygons?.features?.length) {
-        // Add polygons in reverse order so smallest (5 min) is on top
+        // ArcGIS returns polygons largest-first (20, 10, 5 min).
+        // Draw in reverse so smallest (5 min) ends up on top visually.
+        // Map colors so index 0 in COLORS (blue) → smallest break (5 min).
         const features = result.serviceAreaPolygons.features;
+        const lastIdx = features.length - 1;
         for (let i = features.length - 1; i >= 0; i--) {
           const graphic = features[i];
+          const colorIdx = lastIdx - i; // flip: largest polygon → last color, smallest → first
           graphic.symbol = {
             type: "simple-fill",
-            color: SERVICE_AREA_COLORS[i] || "rgba(100,100,100,0.2)",
+            color: SERVICE_AREA_COLORS[colorIdx] || "rgba(100,100,100,0.2)",
             outline: {
-              color: SERVICE_AREA_COLORS[i]?.replace(/[\d.]+\)$/, "0.8)") || "rgba(100,100,100,0.8)",
+              color: SERVICE_AREA_COLORS[colorIdx]?.replace(/[\d.]+\)$/, "0.8)") || "rgba(100,100,100,0.8)",
               width: 1.5,
             },
           };
@@ -1372,6 +1377,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       mapViewRef.current.map.remove(hotspotLayerRef.current);
       hotspotLayerRef.current = null;
     }
+    setHotspotLayerActive(false);
     setHotspotStatus("");
     setHotspotError("");
   };
@@ -1558,6 +1564,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
 
     mapViewRef.current.map.add(hotspotLayer, 0); // Add below the nonprofit feature layer
     hotspotLayerRef.current = hotspotLayer;
+    setHotspotLayerActive(true);
 
     // Zoom to the results extent
     try {
@@ -2111,6 +2118,29 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             {error}
           </div>
         ) : null}
+
+        {/* Hotspot Legend – shown at bottom of map when hotspot layer is active */}
+        {hotspotLayerActive && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 rounded-xl px-4 py-2.5 shadow-lg border" style={{ background: "rgba(255,255,255,0.95)", borderColor: `${C.navy}15` }}>
+            <p className="text-[9px] font-bold uppercase tracking-[0.18em] mb-1.5 text-center" style={{ color: `${C.navy}50` }}>Hotspot Legend</p>
+            <div className="flex items-center gap-3">
+              {[
+                { color: "rgb(180,0,0)", label: "Hot (99%)" },
+                { color: "rgb(240,60,60)", label: "Hot (95%)" },
+                { color: "rgb(255,140,140)", label: "Hot (90%)" },
+                { color: "rgb(245,235,220)", label: "Not Significant" },
+                { color: "rgb(140,140,255)", label: "Cold (90%)" },
+                { color: "rgb(60,60,240)", label: "Cold (95%)" },
+                { color: "rgb(0,0,180)", label: "Cold (99%)" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-sm" style={{ background: item.color, opacity: 0.7 }} />
+                  <span className="text-[9px] font-medium whitespace-nowrap" style={{ color: `${C.navy}80` }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Route Mode Banner + Results ── */}
@@ -2428,28 +2458,6 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
 
-                {/* Legend */}
-                {hotspotLayerRef.current && (
-                  <div className="pt-2 border-t" style={{ borderColor: `${C.navy}10` }}>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-2" style={{ color: `${C.navy}45` }}>Legend (50% opacity)</p>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { color: "rgb(180,0,0)", label: "Hot (99%)" },
-                        { color: "rgb(240,60,60)", label: "Hot (95%)" },
-                        { color: "rgb(255,140,140)", label: "Hot (90%)" },
-                        { color: "rgb(245,235,220)", label: "Not Significant" },
-                        { color: "rgb(140,140,255)", label: "Cold (90%)" },
-                        { color: "rgb(60,60,240)", label: "Cold (95%)" },
-                        { color: "rgb(0,0,180)", label: "Cold (99%)" },
-                      ].map((item) => (
-                        <div key={item.label} className="flex items-center gap-1">
-                          <span className="w-3 h-3 rounded-sm" style={{ background: item.color, opacity: 0.7 }} />
-                          <span className="text-[10px]" style={{ color: `${C.navy}70` }}>{item.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </motion.div>
           )}
