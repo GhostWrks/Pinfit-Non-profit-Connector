@@ -549,7 +549,15 @@ const loadArcgisModules = () =>
         "esri/layers/FeatureLayer",
         "esri/views/MapView",
         "esri/widgets/LayerList",
-        "esri/widgets/Search"
+        "esri/widgets/Search",
+        "esri/rest/serviceArea",
+        "esri/rest/support/ServiceAreaParameters",
+        "esri/rest/support/FeatureSet",
+        "esri/Graphic",
+        "esri/layers/GraphicsLayer",
+        "esri/rest/route",
+        "esri/rest/support/RouteParameters",
+        "esri/rest/networkService"
       ],
       (...modules) => resolve(modules),
       reject
@@ -607,6 +615,40 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     { key: "E_NOVEH", label: "No Vehicle" },
   ];
 
+  // ── Service Area (Isochrone) State ──────────────────────────────────────────
+  const [serviceAreaMode, setServiceAreaMode] = useState(false);
+  const [serviceAreaTravelMode, setServiceAreaTravelMode] = useState<"drive" | "walk">("drive");
+  const serviceAreaTravelModeRef = useRef<"drive" | "walk">("drive");
+  const [serviceAreaLoading, setServiceAreaLoading] = useState(false);
+  const [serviceAreaError, setServiceAreaError] = useState("");
+  const serviceAreaLayerRef = useRef<any>(null);
+  const serviceAreaClickHandleRef = useRef<any>(null);
+  const serviceAreaModulesRef = useRef<{ serviceArea: any; ServiceAreaParams: any; FeatureSet: any; Graphic: any; GraphicsLayer: any } | null>(null);
+
+  const SERVICE_AREA_BREAKS = [5, 10, 20]; // minutes
+  const SERVICE_AREA_COLORS = [
+    "rgba(0, 154, 242, 0.35)",  // 5 min – blue
+    "rgba(98, 150, 119, 0.30)", // 10 min – green
+    "rgba(232, 93, 117, 0.25)", // 20 min – rose
+  ];
+  const SERVICE_AREA_URL =
+    "https://route-api.arcgis.com/arcgis/rest/services/World/ServiceAreas/NAServer/ServiceArea_World";
+
+  // ── Routing State ───────────────────────────────────────────────────────────
+  const [routeMode, setRouteMode] = useState(false); // "waiting for origin click"
+  const [routeDestination, setRouteDestination] = useState<{ lat: number; lon: number; name: string } | null>(null);
+  const [routeTravelMode, setRouteTravelMode] = useState<"drive" | "walk">("drive");
+  const routeTravelModeRef = useRef<"drive" | "walk">("drive");
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState("");
+  const [routeResult, setRouteResult] = useState<{ minutes: number; miles: number; directions: string[] } | null>(null);
+  const routeOriginRef = useRef<any>(null); // Store last origin point for recalculation
+  const routeLayerRef = useRef<any>(null);
+  const routeModulesRef = useRef<{ route: any; RouteParameters: any; networkService: any; FeatureSet: any; Graphic: any } | null>(null);
+  const routeModeRef = useRef(false);
+  const routeDestinationRef = useRef<{ lat: number; lon: number; name: string } | null>(null);
+  const ROUTE_URL = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
+
   const activeFilterCount =
     (queryText.trim() ? 1 : 0) +
     (orgNameFilter.trim() ? 1 : 0) +
@@ -620,6 +662,210 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
 
   const hasField = (fieldName: string) => availableFieldsRef.current.has(fieldName.toUpperCase());
 
+  // ── Service Area Helpers ────────────────────────────────────────────────────
+  const clearServiceAreaGraphics = () => {
+    const layer = serviceAreaLayerRef.current;
+    if (layer) {
+      layer.removeAll();
+    }
+  };
+
+  const solveAndDisplayServiceArea = async (mapPoint: any) => {
+    const modules = serviceAreaModulesRef.current;
+    const view = mapViewRef.current;
+    if (!modules || !view) return;
+
+    const { serviceArea, ServiceAreaParams, FeatureSet, Graphic } = modules;
+
+    setServiceAreaLoading(true);
+    setServiceAreaError("");
+    clearServiceAreaGraphics();
+
+    // Add a pin graphic at the clicked location
+    const pinGraphic = new Graphic({
+      geometry: mapPoint,
+      symbol: {
+        type: "simple-marker",
+        color: "#ffffff",
+        size: 10,
+        outline: { color: C.navy, width: 2 },
+      },
+    });
+    serviceAreaLayerRef.current?.add(pinGraphic);
+
+    try {
+      // Load networkService module and fetch service description for travel modes
+      const [networkService] = await new Promise<any[]>((resolve, reject) => {
+        window.require!(
+          ["esri/rest/networkService"],
+          (...mods: any[]) => resolve(mods),
+          reject
+        );
+      });
+
+      const networkDescription = await networkService.fetchServiceDescription(SERVICE_AREA_URL);
+      const isWalk = serviceAreaTravelModeRef.current === "walk";
+      const travelMode = networkDescription.supportedTravelModes.find(
+        (mode: any) => mode.name === (isWalk ? "Walking Time" : "Driving Time")
+      );
+
+      const featureSet = new FeatureSet({
+        features: [pinGraphic],
+      });
+
+      const params = new ServiceAreaParams({
+        facilities: featureSet,
+        defaultBreaks: SERVICE_AREA_BREAKS,
+        travelMode,
+        outSpatialReference: view.spatialReference,
+        trimOuterPolygon: true,
+      });
+
+      const result = await serviceArea.solve(SERVICE_AREA_URL, params);
+
+      if (result.serviceAreaPolygons?.features?.length) {
+        // Add polygons in reverse order so smallest (5 min) is on top
+        const features = result.serviceAreaPolygons.features;
+        for (let i = features.length - 1; i >= 0; i--) {
+          const graphic = features[i];
+          graphic.symbol = {
+            type: "simple-fill",
+            color: SERVICE_AREA_COLORS[i] || "rgba(100,100,100,0.2)",
+            outline: {
+              color: SERVICE_AREA_COLORS[i]?.replace(/[\d.]+\)$/, "0.8)") || "rgba(100,100,100,0.8)",
+              width: 1.5,
+            },
+          };
+          serviceAreaLayerRef.current?.add(graphic);
+        }
+      }
+    } catch (err: any) {
+      console.error("Service area error:", err);
+      setServiceAreaError(err?.message || "Failed to calculate service area");
+    } finally {
+      setServiceAreaLoading(false);
+    }
+  };
+
+  // ── Routing Helpers ─────────────────────────────────────────────────────────
+  const clearRoute = () => {
+    const layer = routeLayerRef.current;
+    if (layer) {
+      layer.removeAll();
+    }
+    routeOriginRef.current = null;
+    setRouteResult(null);
+    setRouteError("");
+  };
+
+  const solveAndDisplayRoute = async (originPoint: any) => {
+    const modules = routeModulesRef.current;
+    const view = mapViewRef.current;
+    const destination = routeDestinationRef.current;
+    if (!modules || !view || !destination) return;
+
+    // Store origin for recalculation when travel mode changes
+    routeOriginRef.current = originPoint;
+
+    const { route, RouteParameters, networkService, FeatureSet, Graphic } = modules;
+
+    setRouteLoading(true);
+    setRouteError("");
+    setRouteResult(null);
+    // Clear previous route graphics (but keep originRef intact for recalculation)
+    if (routeLayerRef.current) {
+      routeLayerRef.current.removeAll();
+    }
+
+    // Add origin pin
+    const originGraphic = new Graphic({
+      geometry: originPoint,
+      symbol: {
+        type: "simple-marker",
+        color: C.blue,
+        size: 12,
+        outline: { color: "#fff", width: 2 },
+      },
+    });
+    routeLayerRef.current?.add(originGraphic);
+
+    // Add destination pin
+    const destGraphic = new Graphic({
+      geometry: { type: "point", longitude: destination.lon, latitude: destination.lat },
+      symbol: {
+        type: "simple-marker",
+        color: C.rose,
+        size: 12,
+        outline: { color: "#fff", width: 2 },
+      },
+    });
+    routeLayerRef.current?.add(destGraphic);
+
+    try {
+      // Get travel mode from network service description
+      const networkDescription = await networkService.fetchServiceDescription(ROUTE_URL);
+      const isWalk = routeTravelModeRef.current === "walk";
+      const travelMode = networkDescription.supportedTravelModes.find(
+        (mode: any) => mode.name === (isWalk ? "Walking Time" : "Driving Time")
+      );
+
+      const routeParams = new RouteParameters({
+        stops: new FeatureSet({
+          features: [originGraphic, destGraphic],
+        }),
+        travelMode,
+        returnDirections: true,
+        outSpatialReference: view.spatialReference,
+      });
+
+      const result = await route.solve(ROUTE_URL, routeParams);
+
+      if (result.routeResults?.length) {
+        const routeResult = result.routeResults[0];
+        const routeGraphic = routeResult.route;
+
+        // Draw the route line
+        routeGraphic.symbol = {
+          type: "simple-line",
+          color: isWalk ? C.green : C.blue,
+          width: 4,
+          style: "solid",
+        };
+        routeLayerRef.current?.add(routeGraphic);
+
+        // Extract directions
+        const directions = routeResult.directions?.features?.map(
+          (f: any) => f.attributes?.text
+        ).filter(Boolean) || [];
+
+        const totalTime = routeResult.route?.attributes?.Total_TravelTime
+          ?? routeResult.directions?.totalLength
+          ?? 0;
+        const totalMiles = routeResult.route?.attributes?.Total_Miles
+          ?? routeResult.route?.attributes?.Total_Kilometers * 0.621371
+          ?? 0;
+
+        setRouteResult({
+          minutes: Math.round(totalTime),
+          miles: Math.round(totalMiles * 10) / 10,
+          directions,
+        });
+
+        // Zoom to the route extent
+        if (routeGraphic.geometry?.extent) {
+          await view.goTo(routeGraphic.geometry.extent.expand(1.3));
+        }
+      }
+    } catch (err: any) {
+      console.error("Route error:", err);
+      setRouteError(err?.message || "Failed to calculate route");
+    } finally {
+      setRouteLoading(false);
+      setRouteMode(false);
+      routeModeRef.current = false;
+    }
+  };
+
   const buildDefinitionExpression = () => {
     const clauses: string[] = [];
     const q = queryText.trim();
@@ -630,7 +876,31 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
         `UPPER(Company_Business_Name) LIKE '%${qEsc}%'`,
         `UPPER(City) LIKE '%${qEsc}%'`,
         `UPPER(Mission_Area) LIKE '%${qEsc}%'`,
-        `UPPER(Esri_Category_Description) LIKE '%${qEsc}%'`
+        `UPPER(Esri_Category_Description) LIKE '%${qEsc}%'`,
+        // Item fields – what orgs OFFER
+        `UPPER(Offer_Bedding_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Food_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Clothes_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Toiletries_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Furniture_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Medical_Supplies_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Shelter_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Electronics_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Education_Materials_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Baby_Items_Items) LIKE '%${qEsc}%'`,
+        `UPPER(Offer_Cleaning_Items_Items) LIKE '%${qEsc}%'`,
+        // Item fields – what orgs NEED
+        `UPPER(Bedding_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Food_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Clothes_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Toiletries_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Furniture_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Medical_Supplies_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Shelter_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Electronics_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Education_Materials_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Baby_Items_Text) LIKE '%${qEsc}%'`,
+        `UPPER(Cleaning_Items_Text) LIKE '%${qEsc}%'`,
       ];
       const digits = q.replace(/[^0-9]/g, "");
       if (digits) {
@@ -666,6 +936,20 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     }
     if (staffingFilter === "not-needed") {
       clauses.push(`(Need_Volunteers IS NULL OR UPPER(Need_Volunteers) <> 'YES')`);
+    }
+
+    if (urgentOnly) {
+      // Show only orgs that have at least one urgent need
+      const urgentFields = [
+        "Bedding_Urgent", "Food_Urgent", "Clothes_Urgent", "Toiletries_Urgent",
+        "Furniture_Urgent", "Medical_Supplies_Urgent", "Shelter_Urgent",
+        "Electronics_Urgent", "Education_Materials_Urgent", "Baby_Items_Urgent",
+        "Cleaning_Items_Urgent",
+      ].filter((f) => hasField(f));
+      if (urgentFields.length > 0) {
+        const urgentClauses = urgentFields.map((f) => `UPPER(${f}) = 'YES'`);
+        clauses.push(`(${urgentClauses.join(" OR ")})`);
+      }
     }
 
     if (selectedResourceFilters.size > 0) {
@@ -1209,7 +1493,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       renderer,
     });
 
-    mapViewRef.current.map.add(hotspotLayer);
+    mapViewRef.current.map.add(hotspotLayer, 0); // Add below the nonprofit feature layer
     hotspotLayerRef.current = hotspotLayer;
 
     // Zoom to the results extent
@@ -1270,12 +1554,11 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     }
 
     let view: any = null;
-    let searchWidget: any = null;
     let popupSelectedHandle: { remove: () => void } | null = null;
 
     ensureRuntimeConfig()
       .then(() => loadArcgisModules())
-      .then(async ([esriConfig, ArcGISMap, FeatureLayer, MapView, LayerList, Search]) => {
+      .then(async ([esriConfig, ArcGISMap, FeatureLayer, MapView, LayerList, _Search, serviceAreaModule, ServiceAreaParams, FeatureSetModule, GraphicModule, GraphicsLayer, routeModule, RouteParameters, networkServiceModule]) => {
         const apiKey = window.__APP_CONFIG?.arcgisApiKey;
         if (apiKey) {
           esriConfig.apiKey = apiKey;
@@ -1298,6 +1581,30 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             : { portalItem: { id: DONOR_FEATURE_LAYER_ITEM_ID } }),
           outFields: ["*"],
           popupEnabled: true,
+          featureReduction: {
+            type: "cluster",
+            clusterRadius: "80px",
+            clusterMinSize: "22px",
+            clusterMaxSize: "56px",
+            labelingInfo: [{
+              deconflictionStrategy: "none",
+              labelExpressionInfo: { expression: "$feature.cluster_count" },
+              symbol: {
+                type: "text",
+                color: "#ffffff",
+                font: { size: "11px", weight: "bold" },
+                haloColor: C.navy,
+                haloSize: "1px",
+              },
+              labelPlacement: "center-center",
+            }],
+            symbol: {
+              type: "simple-marker",
+              style: "circle",
+              color: C.rose,
+              outline: { color: "#ffffff", width: 1.5 },
+            },
+          },
         });
 
         await sourceLayer.load();
@@ -1312,9 +1619,36 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
           title: "{Company_Business_Name}",
           content: [{
             type: "fields",
-            fieldInfos: sourceLayer.fields
-              .filter((f: any) => String(f?.name || "").toLowerCase() !== "shape")
-              .map((f: any) => ({ fieldName: String(f.name), label: String(f.alias || f.name), visible: true }))
+            fieldInfos: [
+              // Contact info
+              { fieldName: "Contact_Email", label: "Email", visible: true },
+              { fieldName: "Website_Link", label: "Website", visible: true },
+              { fieldName: "Working_Hours", label: "Hours", visible: true },
+              // Items they OFFER
+              { fieldName: "Offer_Bedding_Items", label: "Offers: Bedding", visible: true },
+              { fieldName: "Offer_Food_Items", label: "Offers: Food", visible: true },
+              { fieldName: "Offer_Clothes_Items", label: "Offers: Clothes", visible: true },
+              { fieldName: "Offer_Toiletries_Items", label: "Offers: Toiletries", visible: true },
+              { fieldName: "Offer_Furniture_Items", label: "Offers: Furniture", visible: true },
+              { fieldName: "Offer_Medical_Supplies_Items", label: "Offers: Medical Supplies", visible: true },
+              { fieldName: "Offer_Shelter_Items", label: "Offers: Shelter", visible: true },
+              { fieldName: "Offer_Electronics_Items", label: "Offers: Electronics", visible: true },
+              { fieldName: "Offer_Education_Materials_Items", label: "Offers: Education Materials", visible: true },
+              { fieldName: "Offer_Baby_Items_Items", label: "Offers: Baby Items", visible: true },
+              { fieldName: "Offer_Cleaning_Items_Items", label: "Offers: Cleaning Items", visible: true },
+              // Items they NEED
+              { fieldName: "Bedding_Text", label: "Needs: Bedding", visible: true },
+              { fieldName: "Food_Text", label: "Needs: Food", visible: true },
+              { fieldName: "Clothes_Text", label: "Needs: Clothes", visible: true },
+              { fieldName: "Toiletries_Text", label: "Needs: Toiletries", visible: true },
+              { fieldName: "Furniture_Text", label: "Needs: Furniture", visible: true },
+              { fieldName: "Medical_Supplies_Text", label: "Needs: Medical Supplies", visible: true },
+              { fieldName: "Shelter_Text", label: "Needs: Shelter", visible: true },
+              { fieldName: "Electronics_Text", label: "Needs: Electronics", visible: true },
+              { fieldName: "Education_Materials_Text", label: "Needs: Education Materials", visible: true },
+              { fieldName: "Baby_Items_Text", label: "Needs: Baby Items", visible: true },
+              { fieldName: "Cleaning_Items_Text", label: "Needs: Cleaning Items", visible: true },
+            ].filter((fi) => hasField(fi.fieldName)),
           }],
         };
         sourceLayerRef.current = sourceLayer;
@@ -1330,30 +1664,51 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
         mapViewRef.current = view;
         await view.when();
 
+        // ── Service Area layer + click handler ───────────────────────────────
+        const saLayer = new GraphicsLayer({ title: "Service Areas" });
+        map.add(saLayer, 0); // Add below the nonprofit feature layer
+        serviceAreaLayerRef.current = saLayer;
+        serviceAreaModulesRef.current = {
+          serviceArea: serviceAreaModule,
+          ServiceAreaParams,
+          FeatureSet: FeatureSetModule,
+          Graphic: GraphicModule,
+          GraphicsLayer,
+        };
+
+        // ── Routing layer + modules ──────────────────────────────────────────
+        const routeLayer = new GraphicsLayer({ title: "Route" });
+        map.add(routeLayer, 0); // Below nonprofit layer
+        routeLayerRef.current = routeLayer;
+        routeModulesRef.current = {
+          route: routeModule,
+          RouteParameters,
+          networkService: networkServiceModule,
+          FeatureSet: FeatureSetModule,
+          Graphic: GraphicModule,
+        };
+
+        view.on("click", (event: any) => {
+          // Route mode takes priority
+          if (routeModeRef.current) {
+            event.stopPropagation();
+            solveAndDisplayRoute(event.mapPoint);
+            return;
+          }
+          if (!serviceAreaClickHandleRef.current) return;
+          // Only process if service area mode is active (checked via ref flag)
+          event.stopPropagation();
+          solveAndDisplayServiceArea(event.mapPoint);
+        });
+
         try {
           view.ui.add(new LayerList({ view }), "top-left");
         } catch {
           // Ignore optional widget errors so core map/results still load.
         }
 
-        try {
-          searchWidget = new Search({
-            view,
-            includeDefaultSources: false,
-            sources: [{
-              layer: sourceLayer,
-              searchFields: ["Company_Business_Name", "City", "ZIP_Code", "Mission_Area"],
-              displayField: "Company_Business_Name",
-              exactMatch: false,
-              outFields: ["*"],
-              name: "Organizations",
-              placeholder: "Search by org, city, zip, or mission area",
-            }],
-          });
-          view.ui.add(searchWidget, "top-right");
-        } catch {
-          // Ignore optional widget errors so core map/results still load.
-        }
+        // Search widget removed — app-level search bar handles filtering
+        // and shows ALL matching orgs instead of navigating to just one.
 
         popupSelectedHandle = view.watch("popup.selectedFeature", (feature: any) => {
           const nextId = String(feature?.attributes?.ObjectId ?? feature?.attributes?.OBJECTID ?? "");
@@ -1387,13 +1742,50 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
 
     return () => {
       popupSelectedHandle?.remove();
-      searchWidget?.destroy?.();
       view?.destroy();
       mapViewRef.current = null;
       sourceLayerRef.current = null;
+      serviceAreaLayerRef.current = null;
+      serviceAreaModulesRef.current = null;
+      routeLayerRef.current = null;
+      routeModulesRef.current = null;
       featureByIdRef.current.clear();
     };
   }, []);
+
+  // Sync service area mode flag with the click handler ref
+  useEffect(() => {
+    serviceAreaClickHandleRef.current = serviceAreaMode;
+    if (!serviceAreaMode) {
+      clearServiceAreaGraphics();
+      setServiceAreaError("");
+    }
+  }, [serviceAreaMode]);
+
+  // Keep travel mode ref in sync so the click handler always reads the latest value
+  useEffect(() => {
+    serviceAreaTravelModeRef.current = serviceAreaTravelMode;
+  }, [serviceAreaTravelMode]);
+
+  // Keep routing refs in sync
+  useEffect(() => {
+    routeModeRef.current = routeMode;
+  }, [routeMode]);
+
+  useEffect(() => {
+    routeDestinationRef.current = routeDestination;
+  }, [routeDestination]);
+
+  useEffect(() => {
+    routeTravelModeRef.current = routeTravelMode;
+  }, [routeTravelMode]);
+
+  // Auto-apply filters when quick-filter buttons change
+  useEffect(() => {
+    if (sourceLayerRef.current) {
+      void applyFilters();
+    }
+  }, [staffingFilter, urgentOnly]);
 
   return (
     <motion.div
@@ -1434,7 +1826,7 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             type="text"
             value={queryText}
             onChange={(e) => setQueryText(e.target.value)}
-            placeholder="Search by city, zip, org name, category..."
+            placeholder="Search by city, zip, org name, or items (e.g. diapers, laptops)..."
             className="flex-1 text-sm bg-transparent outline-none placeholder:opacity-35"
             style={{ color: C.navy }}
           />
@@ -1451,7 +1843,9 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
         <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] gap-2 items-center">
           <button
             type="button"
-            onClick={() => setUrgentOnly((prev) => !prev)}
+            onClick={() => {
+              setUrgentOnly((prev) => !prev);
+            }}
             className="rounded-xl border px-3 py-2 text-xs font-bold whitespace-nowrap"
             style={{
               borderColor: urgentOnly ? C.rose : `${C.navy}20`,
@@ -1601,6 +1995,71 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       {/* ── Map Container ── */}
       <div className="relative mx-4 mb-3 rounded-2xl overflow-hidden shadow-md border" style={{ height: 500, borderColor: `${C.blue}18` }}>
         <div ref={mapContainerRef} className="absolute inset-0" />
+
+        {/* ── Service Area Toggle + Legend ── */}
+        <div className="absolute bottom-3 left-3 z-20 flex flex-col items-start gap-2">
+          <button
+            type="button"
+            onClick={() => setServiceAreaMode((prev) => !prev)}
+            className="rounded-xl border px-3 py-2 text-[11px] font-bold shadow-md flex items-center gap-1.5 transition-colors"
+            style={{
+              borderColor: serviceAreaMode ? C.blue : `${C.navy}20`,
+              color: serviceAreaMode ? "#fff" : C.navy,
+              background: serviceAreaMode ? C.blue : "rgba(255,255,255,0.95)",
+            }}
+            aria-pressed={serviceAreaMode}
+            title="Click on the map to see drive-time areas"
+          >
+            <MapPinIcon size={13} />
+            {serviceAreaMode ? "Exit Service Area" : "Service Area"}
+          </button>
+
+          {serviceAreaMode && (
+            <div className="rounded-xl border bg-white/95 shadow-md px-3 py-2 space-y-2" style={{ borderColor: `${C.navy}12` }}>
+              {/* Drive / Walk toggle */}
+              <div className="grid grid-cols-2 gap-1 rounded-lg border p-0.5" style={{ borderColor: `${C.navy}12` }}>
+                <button
+                  type="button"
+                  onClick={() => setServiceAreaTravelMode("drive")}
+                  className="rounded-md px-2 py-1 text-[10px] font-bold"
+                  style={{
+                    background: serviceAreaTravelMode === "drive" ? C.blue : "transparent",
+                    color: serviceAreaTravelMode === "drive" ? "#fff" : C.navy,
+                  }}
+                >
+                  Drive
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setServiceAreaTravelMode("walk")}
+                  className="rounded-md px-2 py-1 text-[10px] font-bold"
+                  style={{
+                    background: serviceAreaTravelMode === "walk" ? C.green : "transparent",
+                    color: serviceAreaTravelMode === "walk" ? "#fff" : C.navy,
+                  }}
+                >
+                  Walk
+                </button>
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.navy }}>
+                {serviceAreaLoading ? "Calculating..." : "Click map to analyze"}
+              </p>
+              {SERVICE_AREA_BREAKS.map((mins, i) => (
+                <div key={mins} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm border"
+                    style={{ background: SERVICE_AREA_COLORS[i], borderColor: SERVICE_AREA_COLORS[i]?.replace(/[\d.]+\)$/, "0.8)") }}
+                  />
+                  <span className="text-[11px] font-semibold" style={{ color: C.navy }}>{mins} min {serviceAreaTravelMode === "walk" ? "walk" : "drive"}</span>
+                </div>
+              ))}
+              {serviceAreaError && (
+                <p className="text-[10px] mt-1" style={{ color: C.rose }}>{serviceAreaError}</p>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="absolute bottom-3 right-3 text-white text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 rounded-lg z-10" style={{ background: C.navy }}>
           {isLoading ? "Loading..." : `${results.length} showing`}
         </div>
@@ -1610,6 +2069,120 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
           </div>
         ) : null}
       </div>
+
+      {/* ── Route Mode Banner + Results ── */}
+      {(routeMode || routeLoading || routeResult || routeError) && (
+        <div className="mx-4 mb-3 rounded-2xl border bg-white shadow-sm overflow-hidden" style={{ borderColor: `${C.blue}30` }}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: `${C.navy}10`, background: `${C.blue}08` }}>
+            <div className="flex items-center gap-2">
+              <MapPinIcon size={14} style={{ color: C.blue }} />
+              <span className="text-xs font-bold" style={{ color: C.navy }}>
+                {routeMode
+                  ? "Click the map to set your starting point"
+                  : routeLoading
+                    ? "Calculating route..."
+                    : `Route to ${routeDestination?.name || "organization"}`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Drive / Walk toggle */}
+              {(routeMode || routeResult) && (
+                <div className="grid grid-cols-2 gap-0.5 rounded-md border p-0.5" style={{ borderColor: `${C.navy}12` }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRouteTravelMode("drive");
+                      routeTravelModeRef.current = "drive";
+                      if (routeOriginRef.current) {
+                        setTimeout(() => solveAndDisplayRoute(routeOriginRef.current), 0);
+                      }
+                    }}
+                    className="rounded px-2 py-0.5 text-[10px] font-bold"
+                    style={{
+                      background: routeTravelMode === "drive" ? C.blue : "transparent",
+                      color: routeTravelMode === "drive" ? "#fff" : C.navy,
+                    }}
+                  >
+                    Drive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRouteTravelMode("walk");
+                      routeTravelModeRef.current = "walk";
+                      if (routeOriginRef.current) {
+                        setTimeout(() => solveAndDisplayRoute(routeOriginRef.current), 0);
+                      }
+                    }}
+                    className="rounded px-2 py-0.5 text-[10px] font-bold"
+                    style={{
+                      background: routeTravelMode === "walk" ? C.green : "transparent",
+                      color: routeTravelMode === "walk" ? "#fff" : C.navy,
+                    }}
+                  >
+                    Walk
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setRouteMode(false);
+                  routeModeRef.current = false;
+                  setRouteDestination(null);
+                  clearRoute();
+                }}
+                className="rounded-full w-6 h-6 border flex items-center justify-center"
+                style={{ borderColor: `${C.navy}20`, color: `${C.navy}60` }}
+                aria-label="Cancel route"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          </div>
+
+          {/* Route Result */}
+          {routeResult && (
+            <div className="px-4 py-3 space-y-2">
+              <div className="flex items-center gap-4">
+                <div className="rounded-lg px-3 py-1.5" style={{ background: `${C.blue}12` }}>
+                  <p className="text-[10px] font-bold uppercase" style={{ color: `${C.navy}60` }}>Time</p>
+                  <p className="text-sm font-extrabold" style={{ color: C.navy }}>{routeResult.minutes} min</p>
+                </div>
+                <div className="rounded-lg px-3 py-1.5" style={{ background: `${C.green}12` }}>
+                  <p className="text-[10px] font-bold uppercase" style={{ color: `${C.navy}60` }}>Distance</p>
+                  <p className="text-sm font-extrabold" style={{ color: C.navy }}>{routeResult.miles} mi</p>
+                </div>
+                <div className="rounded-lg px-3 py-1.5" style={{ background: `${C.rose}12` }}>
+                  <p className="text-[10px] font-bold uppercase" style={{ color: `${C.navy}60` }}>Mode</p>
+                  <p className="text-sm font-extrabold" style={{ color: C.navy }}>{routeTravelMode === "walk" ? "Walking" : "Driving"}</p>
+                </div>
+              </div>
+
+              {routeResult.directions.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-[11px] font-bold cursor-pointer" style={{ color: C.blue }}>
+                    Turn-by-turn directions ({routeResult.directions.length} steps)
+                  </summary>
+                  <ol className="mt-2 space-y-1 pl-4 list-decimal text-[11px]" style={{ color: `${C.navy}80` }}>
+                    {routeResult.directions.map((step, i) => (
+                      <li key={i}>{step}</li>
+                    ))}
+                  </ol>
+                </details>
+              )}
+            </div>
+          )}
+
+          {/* Error */}
+          {routeError && (
+            <div className="px-4 py-2">
+              <p className="text-xs" style={{ color: C.rose }}>{routeError}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Hotspot Analysis Panel ── */}
       <div className="mx-4 mb-3">
@@ -1793,18 +2366,42 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Organization Details</p>
                 <h3 className="text-base font-extrabold" style={{ color: C.navy }}>{selectedOrg.name}</h3>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedOrgId(null);
-                  setDetailOrg(null);
-                }}
-                className="rounded-full w-7 h-7 border flex items-center justify-center"
-                style={{ borderColor: `${C.navy}20`, color: `${C.navy}70` }}
-                aria-label="Close details"
-              >
-                <X size={13} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const feature = selectedOrg.feature;
+                    const lat = feature?.geometry?.latitude ?? feature?.attributes?.Latitude;
+                    const lon = feature?.geometry?.longitude ?? feature?.attributes?.Longitude;
+                    if (lat && lon) {
+                      setRouteDestination({ lat: Number(lat), lon: Number(lon), name: selectedOrg.name });
+                      setRouteMode(true);
+                      clearRoute();
+                    }
+                  }}
+                  className="rounded-lg border px-3 py-1.5 text-[11px] font-bold flex items-center gap-1 transition-colors"
+                  style={{
+                    borderColor: routeMode && routeDestination?.name === selectedOrg.name ? C.blue : `${C.navy}20`,
+                    color: routeMode && routeDestination?.name === selectedOrg.name ? "#fff" : C.blue,
+                    background: routeMode && routeDestination?.name === selectedOrg.name ? C.blue : "transparent",
+                  }}
+                >
+                  <MapPinIcon size={11} />
+                  Route to here
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedOrgId(null);
+                    setDetailOrg(null);
+                  }}
+                  className="rounded-full w-7 h-7 border flex items-center justify-center"
+                  style={{ borderColor: `${C.navy}20`, color: `${C.navy}70` }}
+                  aria-label="Close details"
+                >
+                  <X size={13} />
+                </button>
+              </div>
             </div>
 
             <div className="px-4 py-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -2081,26 +2678,8 @@ function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: ()
           )}
 
           {tab === "map" && (
-            <motion.div key="map" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="px-4 pb-28 pt-2">
-              <div className="mb-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Area Overview</p>
-                <h2 className="text-xl font-extrabold" style={{ color: C.navy }}>Nearby Organizations</h2>
-              </div>
-              <div className="rounded-2xl overflow-hidden border shadow-md" style={{ minHeight: 340, borderColor: `${C.navy}10` }}>
-                <InteractiveMap results={SEED_NONPROFITS} selectedOrgId={null} onPinClick={() => {}} />
-              </div>
-              <div className="mt-3 space-y-2">
-                {SEED_NONPROFITS.map((org) => (
-                  <div key={org.id} className="rounded-xl bg-white/80 px-4 py-3 flex items-center gap-3 border" style={{ borderColor: `${C.navy}08` }}>
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: org.volunteersNeeded ? C.rose : C.green }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold truncate" style={{ color: C.navy }}>{org.name}</p>
-                      <p className="text-xs truncate" style={{ color: `${C.navy}55` }}>{org.address}</p>
-                    </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: `${C.navy}40` }}>{org.category}</span>
-                  </div>
-                ))}
-              </div>
+            <motion.div key="map" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="pb-28">
+              <DonorMapScreen onBack={() => setTab("dashboard")} />
             </motion.div>
           )}
 
