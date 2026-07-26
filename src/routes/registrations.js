@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 
+import { env } from "../config/env.js";
 import { registrationCsvStore } from "../services/registrationCsvStore.js";
 import { arcgisService } from "../services/arcgisService.js";
 
@@ -131,7 +132,9 @@ registrationsRouter.post("/", async (req, res, next) => {
     if (!Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) {
       return res.status(400).json({
         error: "Validation Error",
-        message: "Latitude/longitude are required or an address that can be geocoded"
+        message: env.arcgisApiKey
+          ? "Latitude/longitude are required or the address could not be geocoded"
+          : "Latitude/longitude are required when ARCGIS_API_KEY is not configured"
       });
     }
 
@@ -172,7 +175,9 @@ registrationsRouter.put("/:id", async (req, res, next) => {
     if (!Number.isFinite(payload.latitude) || !Number.isFinite(payload.longitude)) {
       return res.status(400).json({
         error: "Validation Error",
-        message: "Latitude/longitude are required or an address that can be geocoded"
+        message: env.arcgisApiKey
+          ? "Latitude/longitude are required or the address could not be geocoded"
+          : "Latitude/longitude are required when ARCGIS_API_KEY is not configured"
       });
     }
 

@@ -450,6 +450,45 @@ type ArcgisOrgResult = {
   feature: any;
 };
 
+type RegistrationMapRow = {
+  id: string;
+  organizationName: string;
+  address: string;
+  city: string;
+  zip: string;
+  missionArea: string;
+  mainContact: string;
+  contactEmail: string;
+  websiteLink: string;
+  workingHours: string;
+  description: string;
+  needVolunteers: boolean | string;
+  latitude: number;
+  longitude: number;
+  foodYN: string;
+  foodText: string;
+  clothesYN: string;
+  clothesText: string;
+  shelterYN: string;
+  shelterText: string;
+  beddingYN: string;
+  beddingText: string;
+  toiletriesYN: string;
+  toiletriesText: string;
+  furnitureYN: string;
+  furnitureText: string;
+  medicalSuppliesYN: string;
+  medicalSuppliesText: string;
+  electronicsYN: string;
+  electronicsText: string;
+  educationMaterialsYN: string;
+  educationMaterialsText: string;
+  babyItemsYN: string;
+  babyItemsText: string;
+  cleaningItemsYN: string;
+  cleaningItemsText: string;
+};
+
 const DONOR_FEATURE_LAYER_ITEM_ID = "f01aa3b7a3b74026b405a853dbb91c61";
 
 const RESOURCE_FILTERS = [
@@ -1079,6 +1118,65 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     };
   };
 
+  const toRegistrationGraphic = (Graphic: any, row: RegistrationMapRow, objectId: number) => {
+    if (!Graphic) return null;
+
+    if (!Number.isFinite(Number(row.latitude)) || !Number.isFinite(Number(row.longitude))) {
+      return null;
+    }
+
+    const attrs = {
+      ObjectId: objectId,
+      Registration_Id: row.id,
+      Company_Business_Name: row.organizationName,
+      Organization_Name: row.organizationName,
+      Address__: row.address,
+      Address: row.address,
+      City: row.city,
+      ZIP_Code: row.zip,
+      Mission_Area: row.missionArea,
+      Main_Contact: row.mainContact,
+      Contact_Email: row.contactEmail,
+      Website_Link: row.websiteLink,
+      Working_Hours: row.workingHours,
+      Organization_Description: row.description,
+      Need_Volunteers: row.needVolunteers,
+      Food_Y_N: row.foodYN,
+      Food_Text: row.foodText,
+      Clothes_Y_N: row.clothesYN,
+      Clothes_Text: row.clothesText,
+      Shelter_Y_N: row.shelterYN,
+      Shelter_Text: row.shelterText,
+      Bedding_Y_N: row.beddingYN,
+      Bedding_Text: row.beddingText,
+      Toiletries_Y_N: row.toiletriesYN,
+      Toiletries_Text: row.toiletriesText,
+      Furniture_Y_N: row.furnitureYN,
+      Furniture_Text: row.furnitureText,
+      Medical_Supplies_Y_N: row.medicalSuppliesYN,
+      Medical_Supplies_Text: row.medicalSuppliesText,
+      Electronics_Y_N: row.electronicsYN,
+      Electronics_Text: row.electronicsText,
+      Education_Materials_Y_N: row.educationMaterialsYN,
+      Education_Materials_Text: row.educationMaterialsText,
+      Baby_Items_Y_N: row.babyItemsYN,
+      Baby_Items_Text: row.babyItemsText,
+      Cleaning_Items_Y_N: row.cleaningItemsYN,
+      Cleaning_Items_Text: row.cleaningItemsText,
+      Latitude: Number(row.latitude),
+      Longitude: Number(row.longitude),
+    };
+
+    return new Graphic({
+      geometry: {
+        type: "point",
+        longitude: Number(row.longitude),
+        latitude: Number(row.latitude),
+      },
+      attributes: attrs,
+    });
+  };
+
   const refreshResults = async () => {
     const sourceLayer = sourceLayerRef.current;
 
@@ -1086,43 +1184,8 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
     setError("");
     try {
       const where = definitionExpressionRef.current || sourceLayer?.definitionExpression || "1=1";
-      const apiKey = window.__APP_CONFIG?.arcgisApiKey || "";
-      let serviceUrl = layerQueryUrlRef.current || "";
-      if (!serviceUrl) {
-        const itemParams = new URLSearchParams({ f: "json" });
-        if (apiKey) {
-          itemParams.set("token", apiKey);
-        }
-        const itemResponse = await fetch(
-          `https://www.arcgis.com/sharing/rest/content/items/${DONOR_FEATURE_LAYER_ITEM_ID}?${itemParams.toString()}`
-        );
-        const itemPayload = await itemResponse.json();
-        const baseUrl = String(itemPayload?.url || "").replace(/\/+$/, "");
-        if (baseUrl) {
-          serviceUrl = `${baseUrl}/0`;
-          layerQueryUrlRef.current = serviceUrl;
-        }
-      }
-
       let features: any[] = [];
-      if (serviceUrl) {
-        const params = new URLSearchParams({
-          f: "json",
-          where,
-          outFields: "*",
-          returnGeometry: "true",
-          resultRecordCount: "2000",
-        });
-        if (apiKey) {
-          params.set("token", apiKey);
-        }
-        const response = await fetch(`${serviceUrl}/query?${params.toString()}`);
-        const payload = await response.json();
-        if (payload?.error) {
-          throw new Error(payload.error.message || "Feature query failed");
-        }
-        features = Array.isArray(payload?.features) ? payload.features : [];
-      } else if (sourceLayer) {
+      if (sourceLayer) {
         const featureSet = await sourceLayer.queryFeatures({
           where,
           outFields: ["*"],
@@ -1575,36 +1638,39 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
         const itemBaseUrl = String(itemPayload?.url || "").replace(/\/+$/, "");
         const layerUrl = itemBaseUrl ? `${itemBaseUrl}/0` : "";
 
+        const clusterConfig = {
+          type: "cluster",
+          clusterRadius: "80px",
+          clusterMinSize: "22px",
+          clusterMaxSize: "56px",
+          labelingInfo: [{
+            deconflictionStrategy: "none",
+            labelExpressionInfo: { expression: "$feature.cluster_count" },
+            symbol: {
+              type: "text",
+              color: "#ffffff",
+              font: { size: "11px", weight: "bold" },
+              haloColor: C.navy,
+              haloSize: "1px",
+            },
+            labelPlacement: "center-center",
+          }],
+          symbol: {
+            type: "simple-marker",
+            style: "circle",
+            color: C.rose,
+            outline: { color: "#ffffff", width: 1.5 },
+          },
+        } as const;
+
         const sourceLayer = new FeatureLayer({
           ...(layerUrl
             ? { url: layerUrl }
             : { portalItem: { id: DONOR_FEATURE_LAYER_ITEM_ID } }),
+          title: "Non-Profit Locations",
           outFields: ["*"],
           popupEnabled: true,
-          featureReduction: {
-            type: "cluster",
-            clusterRadius: "80px",
-            clusterMinSize: "22px",
-            clusterMaxSize: "56px",
-            labelingInfo: [{
-              deconflictionStrategy: "none",
-              labelExpressionInfo: { expression: "$feature.cluster_count" },
-              symbol: {
-                type: "text",
-                color: "#ffffff",
-                font: { size: "11px", weight: "bold" },
-                haloColor: C.navy,
-                haloSize: "1px",
-              },
-              labelPlacement: "center-center",
-            }],
-            symbol: {
-              type: "simple-marker",
-              style: "circle",
-              color: C.rose,
-              outline: { color: "#ffffff", width: 1.5 },
-            },
-          },
+          featureReduction: clusterConfig,
         });
 
         await sourceLayer.load();
@@ -1651,9 +1717,50 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
             ].filter((fi) => hasField(fi.fieldName)),
           }],
         };
-        sourceLayerRef.current = sourceLayer;
+        let combinedLayer = sourceLayer;
+        try {
+          const sourceFeatureSet = await sourceLayer.queryFeatures({
+            where: "1=1",
+            outFields: ["*"],
+            returnGeometry: true,
+            num: 2000,
+          });
+          const sourceFeatures = sourceFeatureSet?.features || [];
+          const maxObjectId = sourceFeatures.reduce((max: number, feature: any) => {
+            const oid = Number(feature?.attributes?.ObjectId ?? feature?.attributes?.OBJECTID ?? 0);
+            return Number.isFinite(oid) ? Math.max(max, oid) : max;
+          }, 0);
 
-        const map = new ArcGISMap({ basemap: "topo-vector", layers: [sourceLayer] });
+          const regRes = await fetch("/api/registrations");
+          const regData = await regRes.json();
+          const regRows: RegistrationMapRow[] = Array.isArray(regData?.registrations) ? regData.registrations : [];
+          const regGraphics = regRows
+            .map((row, idx) => toRegistrationGraphic(GraphicModule, row, maxObjectId + idx + 1))
+            .filter((g): g is any => g !== null);
+
+          if (regGraphics.length > 0) {
+            combinedLayer = new FeatureLayer({
+              title: "Non-Profit Locations",
+              source: [...sourceFeatures, ...regGraphics],
+              fields: sourceLayer.fields,
+              objectIdField: sourceLayer.objectIdField || "ObjectId",
+              geometryType: "point",
+              spatialReference: sourceLayer.spatialReference,
+              outFields: ["*"],
+              popupEnabled: true,
+              popupTemplate: sourceLayer.popupTemplate,
+              renderer: sourceLayer.renderer,
+              featureReduction: clusterConfig,
+            });
+          }
+        } catch {
+          // If registrations are unavailable, keep map functional with hosted ArcGIS layer only.
+        }
+
+        sourceLayerRef.current = combinedLayer;
+        layerQueryUrlRef.current = "";
+
+        const map = new ArcGISMap({ basemap: "topo-vector", layers: [combinedLayer] });
 
         view = new MapView({
           container: mapContainerRef.current,
@@ -1996,70 +2103,6 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
       <div className="relative mx-4 mb-3 rounded-2xl overflow-hidden shadow-md border" style={{ height: 500, borderColor: `${C.blue}18` }}>
         <div ref={mapContainerRef} className="absolute inset-0" />
 
-        {/* ── Service Area Toggle + Legend ── */}
-        <div className="absolute bottom-3 left-3 z-20 flex flex-col items-start gap-2">
-          <button
-            type="button"
-            onClick={() => setServiceAreaMode((prev) => !prev)}
-            className="rounded-xl border px-3 py-2 text-[11px] font-bold shadow-md flex items-center gap-1.5 transition-colors"
-            style={{
-              borderColor: serviceAreaMode ? C.blue : `${C.navy}20`,
-              color: serviceAreaMode ? "#fff" : C.navy,
-              background: serviceAreaMode ? C.blue : "rgba(255,255,255,0.95)",
-            }}
-            aria-pressed={serviceAreaMode}
-            title="Click on the map to see drive-time areas"
-          >
-            <MapPinIcon size={13} />
-            {serviceAreaMode ? "Exit Service Area" : "Service Area"}
-          </button>
-
-          {serviceAreaMode && (
-            <div className="rounded-xl border bg-white/95 shadow-md px-3 py-2 space-y-2" style={{ borderColor: `${C.navy}12` }}>
-              {/* Drive / Walk toggle */}
-              <div className="grid grid-cols-2 gap-1 rounded-lg border p-0.5" style={{ borderColor: `${C.navy}12` }}>
-                <button
-                  type="button"
-                  onClick={() => setServiceAreaTravelMode("drive")}
-                  className="rounded-md px-2 py-1 text-[10px] font-bold"
-                  style={{
-                    background: serviceAreaTravelMode === "drive" ? C.blue : "transparent",
-                    color: serviceAreaTravelMode === "drive" ? "#fff" : C.navy,
-                  }}
-                >
-                  Drive
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setServiceAreaTravelMode("walk")}
-                  className="rounded-md px-2 py-1 text-[10px] font-bold"
-                  style={{
-                    background: serviceAreaTravelMode === "walk" ? C.green : "transparent",
-                    color: serviceAreaTravelMode === "walk" ? "#fff" : C.navy,
-                  }}
-                >
-                  Walk
-                </button>
-              </div>
-              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.navy }}>
-                {serviceAreaLoading ? "Calculating..." : "Click map to analyze"}
-              </p>
-              {SERVICE_AREA_BREAKS.map((mins, i) => (
-                <div key={mins} className="flex items-center gap-2">
-                  <span
-                    className="inline-block w-3 h-3 rounded-sm border"
-                    style={{ background: SERVICE_AREA_COLORS[i], borderColor: SERVICE_AREA_COLORS[i]?.replace(/[\d.]+\)$/, "0.8)") }}
-                  />
-                  <span className="text-[11px] font-semibold" style={{ color: C.navy }}>{mins} min {serviceAreaTravelMode === "walk" ? "walk" : "drive"}</span>
-                </div>
-              ))}
-              {serviceAreaError && (
-                <p className="text-[10px] mt-1" style={{ color: C.rose }}>{serviceAreaError}</p>
-              )}
-            </div>
-          )}
-        </div>
-
         <div className="absolute bottom-3 right-3 text-white text-[11px] font-bold tracking-widest uppercase px-3 py-1.5 rounded-lg z-10" style={{ background: C.navy }}>
           {isLoading ? "Loading..." : `${results.length} showing`}
         </div>
@@ -2186,20 +2229,83 @@ function DonorMapScreen({ onBack }: { onBack: () => void }) {
 
       {/* ── Hotspot Analysis Panel ── */}
       <div className="mx-4 mb-3">
-        <button
-          type="button"
-          onClick={() => setShowHotspotPanel((prev) => !prev)}
-          className="rounded-xl border px-4 py-2.5 text-xs font-bold flex items-center gap-2 transition-colors"
-          style={{
-            borderColor: showHotspotPanel ? C.rose : `${C.navy}20`,
-            color: showHotspotPanel ? C.rose : C.navy,
-            background: showHotspotPanel ? `${C.rose}08` : "rgba(255,255,255,0.9)",
-          }}
-        >
-          <TrendingUp size={14} />
-          Hotspot Analysis
-          <ChevronRight size={12} style={{ transform: showHotspotPanel ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setServiceAreaMode((prev) => !prev)}
+            className="rounded-xl border px-4 py-2.5 text-xs font-bold flex items-center gap-2 transition-colors"
+            style={{
+              borderColor: serviceAreaMode ? C.blue : `${C.navy}20`,
+              color: serviceAreaMode ? C.blue : C.navy,
+              background: serviceAreaMode ? `${C.blue}08` : "rgba(255,255,255,0.9)",
+            }}
+            aria-pressed={serviceAreaMode}
+            title="Click on the map to see drive-time areas"
+          >
+            <MapPinIcon size={14} />
+            Service Area
+            <ChevronRight size={12} style={{ transform: serviceAreaMode ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowHotspotPanel((prev) => !prev)}
+            className="rounded-xl border px-4 py-2.5 text-xs font-bold flex items-center gap-2 transition-colors"
+            style={{
+              borderColor: showHotspotPanel ? C.rose : `${C.navy}20`,
+              color: showHotspotPanel ? C.rose : C.navy,
+              background: showHotspotPanel ? `${C.rose}08` : "rgba(255,255,255,0.9)",
+            }}
+          >
+            <TrendingUp size={14} />
+            Hotspot Analysis
+            <ChevronRight size={12} style={{ transform: showHotspotPanel ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+          </button>
+        </div>
+
+        {serviceAreaMode && (
+          <div className="mt-2 rounded-xl border bg-white px-3 py-2 space-y-2" style={{ borderColor: `${C.navy}12` }}>
+            <div className="grid grid-cols-2 gap-1 rounded-lg border p-0.5" style={{ borderColor: `${C.navy}12` }}>
+              <button
+                type="button"
+                onClick={() => setServiceAreaTravelMode("drive")}
+                className="rounded-md px-2 py-1 text-[10px] font-bold"
+                style={{
+                  background: serviceAreaTravelMode === "drive" ? C.blue : "transparent",
+                  color: serviceAreaTravelMode === "drive" ? "#fff" : C.navy,
+                }}
+              >
+                Drive
+              </button>
+              <button
+                type="button"
+                onClick={() => setServiceAreaTravelMode("walk")}
+                className="rounded-md px-2 py-1 text-[10px] font-bold"
+                style={{
+                  background: serviceAreaTravelMode === "walk" ? C.green : "transparent",
+                  color: serviceAreaTravelMode === "walk" ? "#fff" : C.navy,
+                }}
+              >
+                Walk
+              </button>
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.navy }}>
+              {serviceAreaLoading ? "Calculating..." : "Click map to analyze"}
+            </p>
+            {SERVICE_AREA_BREAKS.map((mins, i) => (
+              <div key={mins} className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 rounded-sm border"
+                  style={{ background: SERVICE_AREA_COLORS[i], borderColor: SERVICE_AREA_COLORS[i]?.replace(/[\d.]+\)$/, "0.8)") }}
+                />
+                <span className="text-[11px] font-semibold" style={{ color: C.navy }}>{mins} min {serviceAreaTravelMode === "walk" ? "walk" : "drive"}</span>
+              </div>
+            ))}
+            {serviceAreaError && (
+              <p className="text-[10px] mt-1" style={{ color: C.rose }}>{serviceAreaError}</p>
+            )}
+          </div>
+        )}
 
         <AnimatePresence>
           {showHotspotPanel && (
@@ -2932,9 +3038,498 @@ function BroadcastForm({ onBack }: { onBack: () => void }) {
   );
 }
 
+type RegistrationNeedsKey =
+  | "food"
+  | "clothes"
+  | "shelter"
+  | "bedding"
+  | "toiletries"
+  | "furniture"
+  | "medicalSupplies"
+  | "electronics"
+  | "educationMaterials"
+  | "babyItems"
+  | "cleaningItems";
+
+type RegistrationRecord = {
+  id: string;
+  organizationName: string;
+  address: string;
+  city: string;
+  stateAbbreviation: string;
+  zip: string;
+  industryDescription: string;
+  employeeCount: string;
+  esriCategoryDescription: string;
+  missionArea: string;
+  mainContact: string;
+  contactEmail: string;
+  websiteLink: string;
+  workingHours: string;
+  matchedAddress: string;
+  needVolunteers: boolean | string;
+  foodYN: string;
+  foodText: string;
+  clothesYN: string;
+  clothesText: string;
+  shelterYN: string;
+  shelterText: string;
+  beddingYN: string;
+  beddingText: string;
+  toiletriesYN: string;
+  toiletriesText: string;
+  furnitureYN: string;
+  furnitureText: string;
+  medicalSuppliesYN: string;
+  medicalSuppliesText: string;
+  electronicsYN: string;
+  electronicsText: string;
+  educationMaterialsYN: string;
+  educationMaterialsText: string;
+  babyItemsYN: string;
+  babyItemsText: string;
+  cleaningItemsYN: string;
+  cleaningItemsText: string;
+  latitude?: number;
+  longitude?: number;
+  description: string;
+};
+
+type RegistrationFormState = {
+  organizationName: string;
+  address: string;
+  city: string;
+  stateAbbreviation: string;
+  zip: string;
+  industryDescription: string;
+  employeeCount: string;
+  esriCategoryDescription: string;
+  missionArea: string;
+  mainContact: string;
+  contactEmail: string;
+  websiteLink: string;
+  workingHours: string;
+  matchedAddress: string;
+  latitude: string;
+  longitude: string;
+  description: string;
+  needVolunteers: boolean;
+  needs: Record<RegistrationNeedsKey, { needed: boolean; text: string }>;
+};
+
+const REGISTRATION_NEEDS: Array<{ key: RegistrationNeedsKey; label: string; textLabel: string }> = [
+  { key: "food", label: "Food", textLabel: "Food items" },
+  { key: "clothes", label: "Clothes", textLabel: "Clothes details" },
+  { key: "shelter", label: "Shelter", textLabel: "Shelter details" },
+  { key: "bedding", label: "Bedding", textLabel: "Bedding details" },
+  { key: "toiletries", label: "Toiletries", textLabel: "Toiletries details" },
+  { key: "furniture", label: "Furniture", textLabel: "Furniture details" },
+  { key: "medicalSupplies", label: "Medical Supplies", textLabel: "Medical supply details" },
+  { key: "electronics", label: "Electronics", textLabel: "Electronics details" },
+  { key: "educationMaterials", label: "Education Materials", textLabel: "Education materials details" },
+  { key: "babyItems", label: "Baby Items", textLabel: "Baby item details" },
+  { key: "cleaningItems", label: "Cleaning Items", textLabel: "Cleaning item details" },
+];
+
+const blankRegistrationForm = (defaultOrganizationName = ""): RegistrationFormState => ({
+  organizationName: defaultOrganizationName,
+  address: "",
+  city: "",
+  stateAbbreviation: "CA",
+  zip: "",
+  industryDescription: "",
+  employeeCount: "",
+  esriCategoryDescription: "",
+  missionArea: "General Mission-Driven Nonprofit",
+  mainContact: "",
+  contactEmail: "",
+  websiteLink: "",
+  workingHours: "",
+  matchedAddress: "",
+  latitude: "",
+  longitude: "",
+  description: "",
+  needVolunteers: false,
+  needs: {
+    food: { needed: false, text: "" },
+    clothes: { needed: false, text: "" },
+    shelter: { needed: false, text: "" },
+    bedding: { needed: false, text: "" },
+    toiletries: { needed: false, text: "" },
+    furniture: { needed: false, text: "" },
+    medicalSupplies: { needed: false, text: "" },
+    electronics: { needed: false, text: "" },
+    educationMaterials: { needed: false, text: "" },
+    babyItems: { needed: false, text: "" },
+    cleaningItems: { needed: false, text: "" },
+  },
+});
+
+function OrganizationProfileForm({ onBack, defaultOrganizationName }: { onBack: () => void; defaultOrganizationName: string }) {
+  const [existingRegistrations, setExistingRegistrations] = useState<RegistrationRecord[]>([]);
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState("");
+  const [loadingRegistrations, setLoadingRegistrations] = useState(true);
+  const [form, setForm] = useState<RegistrationFormState>(blankRegistrationForm(defaultOrganizationName));
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const toBool = (value: boolean | string | undefined) => {
+    const text = String(value ?? "").trim().toLowerCase();
+    return value === true || text === "yes" || text === "true" || text === "1" || text === "y";
+  };
+
+  const loadRecord = (record: RegistrationRecord) => {
+    setForm({
+      organizationName: record.organizationName || "",
+      address: record.address || "",
+      city: record.city || "",
+      stateAbbreviation: record.stateAbbreviation || "",
+      zip: record.zip || "",
+      industryDescription: record.industryDescription || "",
+      employeeCount: String(record.employeeCount || ""),
+      esriCategoryDescription: record.esriCategoryDescription || "",
+      missionArea: record.missionArea || "",
+      mainContact: record.mainContact || "",
+      contactEmail: record.contactEmail || "",
+      websiteLink: record.websiteLink || "",
+      workingHours: record.workingHours || "",
+      matchedAddress: record.matchedAddress || "",
+      latitude: Number.isFinite(Number(record.latitude)) ? String(record.latitude) : "",
+      longitude: Number.isFinite(Number(record.longitude)) ? String(record.longitude) : "",
+      description: record.description || "",
+      needVolunteers: toBool(record.needVolunteers),
+      needs: {
+        food: { needed: toBool(record.foodYN), text: record.foodText || "" },
+        clothes: { needed: toBool(record.clothesYN), text: record.clothesText || "" },
+        shelter: { needed: toBool(record.shelterYN), text: record.shelterText || "" },
+        bedding: { needed: toBool(record.beddingYN), text: record.beddingText || "" },
+        toiletries: { needed: toBool(record.toiletriesYN), text: record.toiletriesText || "" },
+        furniture: { needed: toBool(record.furnitureYN), text: record.furnitureText || "" },
+        medicalSupplies: { needed: toBool(record.medicalSuppliesYN), text: record.medicalSuppliesText || "" },
+        electronics: { needed: toBool(record.electronicsYN), text: record.electronicsText || "" },
+        educationMaterials: { needed: toBool(record.educationMaterialsYN), text: record.educationMaterialsText || "" },
+        babyItems: { needed: toBool(record.babyItemsYN), text: record.babyItemsText || "" },
+        cleaningItems: { needed: toBool(record.cleaningItemsYN), text: record.cleaningItemsText || "" },
+      },
+    });
+  };
+
+  useEffect(() => {
+    const loadRegistrations = async () => {
+      setLoadingRegistrations(true);
+      try {
+        const res = await fetch("/api/registrations");
+        const data = await res.json();
+        const rows: RegistrationRecord[] = Array.isArray(data?.registrations) ? data.registrations : [];
+        setExistingRegistrations(rows);
+
+        const defaultName = defaultOrganizationName.trim().toLowerCase();
+        if (defaultName) {
+          const matched = rows.find((row) => row.organizationName?.trim().toLowerCase() === defaultName);
+          if (matched) {
+            setSelectedRegistrationId(matched.id);
+            loadRecord(matched);
+          }
+        }
+      } catch {
+        setError("Unable to load existing registrations.");
+      } finally {
+        setLoadingRegistrations(false);
+      }
+    };
+
+    void loadRegistrations();
+  }, [defaultOrganizationName]);
+
+  const updateField = (field: keyof RegistrationFormState, value: string | boolean | RegistrationFormState["needs"]) => {
+    setForm((prev) => ({ ...prev, [field]: value } as RegistrationFormState));
+  };
+
+  const updateNeed = (key: RegistrationNeedsKey, patch: Partial<{ needed: boolean; text: string }>) => {
+    setForm((prev) => ({
+      ...prev,
+      needs: {
+        ...prev.needs,
+        [key]: {
+          ...prev.needs[key],
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const resetToNew = () => {
+    setSelectedRegistrationId("");
+    setMessage("");
+    setError("");
+    setForm(blankRegistrationForm(defaultOrganizationName));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage("");
+    setError("");
+
+    if (!form.organizationName.trim() || !form.address.trim() || !form.city.trim() || !form.zip.trim() || !form.missionArea.trim()) {
+      setError("Please fill in organization name, address, city, ZIP, and mission area.");
+      return;
+    }
+
+    const payload = {
+      organizationName: form.organizationName.trim(),
+      address: form.address.trim(),
+      city: form.city.trim(),
+      stateAbbreviation: form.stateAbbreviation.trim(),
+      zip: form.zip.trim(),
+      industryDescription: form.industryDescription.trim(),
+      employeeCount: form.employeeCount.trim(),
+      esriCategoryDescription: form.esriCategoryDescription.trim(),
+      missionArea: form.missionArea.trim(),
+      mainContact: form.mainContact.trim(),
+      contactEmail: form.contactEmail.trim(),
+      websiteLink: form.websiteLink.trim(),
+      workingHours: form.workingHours.trim(),
+      matchedAddress: form.matchedAddress.trim(),
+      latitude: form.latitude.trim() ? Number(form.latitude) : undefined,
+      longitude: form.longitude.trim() ? Number(form.longitude) : undefined,
+      description: form.description.trim(),
+      needVolunteers: form.needVolunteers,
+      foodYN: form.needs.food.needed,
+      foodText: form.needs.food.text.trim(),
+      clothesYN: form.needs.clothes.needed,
+      clothesText: form.needs.clothes.text.trim(),
+      shelterYN: form.needs.shelter.needed,
+      shelterText: form.needs.shelter.text.trim(),
+      beddingYN: form.needs.bedding.needed,
+      beddingText: form.needs.bedding.text.trim(),
+      toiletriesYN: form.needs.toiletries.needed,
+      toiletriesText: form.needs.toiletries.text.trim(),
+      furnitureYN: form.needs.furniture.needed,
+      furnitureText: form.needs.furniture.text.trim(),
+      medicalSuppliesYN: form.needs.medicalSupplies.needed,
+      medicalSuppliesText: form.needs.medicalSupplies.text.trim(),
+      electronicsYN: form.needs.electronics.needed,
+      electronicsText: form.needs.electronics.text.trim(),
+      educationMaterialsYN: form.needs.educationMaterials.needed,
+      educationMaterialsText: form.needs.educationMaterials.text.trim(),
+      babyItemsYN: form.needs.babyItems.needed,
+      babyItemsText: form.needs.babyItems.text.trim(),
+      cleaningItemsYN: form.needs.cleaningItems.needed,
+      cleaningItemsText: form.needs.cleaningItems.text.trim(),
+    };
+
+    setSubmitting(true);
+    try {
+      const isUpdate = Boolean(selectedRegistrationId);
+      const res = await fetch(isUpdate ? `/api/registrations/${selectedRegistrationId}` : "/api/registrations", {
+        method: isUpdate ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message || "Unable to save registration.");
+        return;
+      }
+
+      const saved = data.registration as RegistrationRecord;
+      if (saved?.id) {
+        setSelectedRegistrationId(saved.id);
+        setExistingRegistrations((prev) => {
+          const idx = prev.findIndex((row) => row.id === saved.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = saved;
+            return next;
+          }
+          return [saved, ...prev];
+        });
+      }
+      setMessage(isUpdate ? "Organization details updated successfully." : "Organization registered successfully.");
+    } catch {
+      setError("Network error while saving registration.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div key="org-profile-form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="px-4 py-2 pb-28 space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="w-8 h-8 rounded-full border flex items-center justify-center" style={{ borderColor: `${C.navy}20`, color: C.navy }}>
+          <ArrowLeft size={14} />
+        </button>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: C.rose }}>Organization</p>
+          <h2 className="text-xl font-extrabold" style={{ color: C.navy }}>Register / Update Profile</h2>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="rounded-2xl bg-white/90 shadow-sm border p-4 space-y-4" style={{ borderColor: `${C.navy}08` }}>
+        <div className="rounded-xl border p-3" style={{ borderColor: `${C.navy}12`, background: `${C.blue}08` }}>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Load Existing Organization</label>
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+            <select
+              value={selectedRegistrationId}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedRegistrationId(value);
+                const found = existingRegistrations.find((row) => row.id === value);
+                if (found) {
+                  loadRecord(found);
+                }
+              }}
+              className="w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none"
+              style={{ borderColor: `${C.navy}15`, color: C.navy }}
+              disabled={loadingRegistrations}
+            >
+              <option value="">Select existing registration</option>
+              {existingRegistrations.map((row) => (
+                <option key={row.id} value={row.id}>{row.organizationName || row.id}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={resetToNew}
+              className="rounded-xl px-3 py-2.5 text-xs font-bold border"
+              style={{ borderColor: `${C.navy}20`, color: C.navy, background: "white" }}
+            >
+              Start New
+            </button>
+          </div>
+          <p className="text-[11px] mt-2" style={{ color: `${C.navy}60` }}>
+            Select a record to edit, or start a new registration.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Organization Name *</label>
+            <input value={form.organizationName} onChange={(e) => updateField("organizationName", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Main Contact</label>
+            <input value={form.mainContact} onChange={(e) => updateField("mainContact", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Address *</label>
+            <input value={form.address} onChange={(e) => updateField("address", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Matched Address</label>
+            <input value={form.matchedAddress} onChange={(e) => updateField("matchedAddress", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>City *</label>
+            <input value={form.city} onChange={(e) => updateField("city", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-bold" style={{ color: C.navy }}>State</label>
+              <input value={form.stateAbbreviation} onChange={(e) => updateField("stateAbbreviation", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+            </div>
+            <div>
+              <label className="text-xs font-bold" style={{ color: C.navy }}>ZIP *</label>
+              <input value={form.zip} onChange={(e) => updateField("zip", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Contact Email</label>
+            <input type="email" value={form.contactEmail} onChange={(e) => updateField("contactEmail", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Website</label>
+            <input value={form.websiteLink} onChange={(e) => updateField("websiteLink", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Mission Area *</label>
+            <input value={form.missionArea} onChange={(e) => updateField("missionArea", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Working Hours</label>
+            <input value={form.workingHours} onChange={(e) => updateField("workingHours", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Industry Description</label>
+            <input value={form.industryDescription} onChange={(e) => updateField("industryDescription", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Esri Category Description</label>
+            <input value={form.esriCategoryDescription} onChange={(e) => updateField("esriCategoryDescription", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Employee Count</label>
+            <input value={form.employeeCount} onChange={(e) => updateField("employeeCount", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Latitude</label>
+            <input value={form.latitude} onChange={(e) => updateField("latitude", e.target.value)} placeholder="e.g. 34.0558" className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+          <div>
+            <label className="text-xs font-bold" style={{ color: C.navy }}>Longitude</label>
+            <input value={form.longitude} onChange={(e) => updateField("longitude", e.target.value)} placeholder="e.g. -117.1825" className="w-full mt-1 rounded-xl border bg-white px-4 py-2.5 text-sm outline-none" style={{ borderColor: `${C.navy}15`, color: C.navy }} />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold" style={{ color: C.navy }}>Organization Description</label>
+          <textarea value={form.description} onChange={(e) => updateField("description", e.target.value)} className="w-full mt-1 rounded-xl border bg-white px-4 py-3 text-sm outline-none resize-none" style={{ borderColor: `${C.navy}15`, color: C.navy, minHeight: 85 }} />
+        </div>
+
+        <div className="flex items-center justify-between rounded-xl border p-3" style={{ borderColor: `${C.navy}12` }}>
+          <div>
+            <p className="text-xs font-bold" style={{ color: C.navy }}>Need Volunteers</p>
+            <p className="text-[11px]" style={{ color: `${C.navy}55` }}>Toggle if your organization is currently requesting volunteer help.</p>
+          </div>
+          <button type="button" onClick={() => updateField("needVolunteers", !form.needVolunteers)} className="w-11 h-6 rounded-full flex items-center px-0.5 transition-colors" style={{ background: form.needVolunteers ? C.blue : `${C.navy}15` }}>
+            <div className="w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: form.needVolunteers ? "translateX(20px)" : "translateX(0)" }} />
+          </button>
+        </div>
+
+        <div className="rounded-xl border p-3 space-y-3" style={{ borderColor: `${C.navy}12` }}>
+          <p className="text-xs font-bold" style={{ color: C.navy }}>Donation Needs</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {REGISTRATION_NEEDS.map((item) => (
+              <div key={item.key} className="rounded-lg border p-3" style={{ borderColor: `${C.navy}10` }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold" style={{ color: C.navy }}>{item.label}</p>
+                  <button
+                    type="button"
+                    onClick={() => updateNeed(item.key, { needed: !form.needs[item.key].needed })}
+                    className="w-11 h-6 rounded-full flex items-center px-0.5 transition-colors"
+                    style={{ background: form.needs[item.key].needed ? C.rose : `${C.navy}15` }}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: form.needs[item.key].needed ? "translateX(20px)" : "translateX(0)" }} />
+                  </button>
+                </div>
+                <input
+                  value={form.needs[item.key].text}
+                  onChange={(e) => updateNeed(item.key, { text: e.target.value })}
+                  placeholder={item.textLabel}
+                  className="w-full mt-2 rounded-lg border bg-white px-3 py-2 text-xs outline-none"
+                  style={{ borderColor: `${C.navy}15`, color: C.navy }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="text-xs font-semibold" style={{ color: C.rose }}>{error}</p>}
+        {message && <p className="text-xs font-semibold" style={{ color: C.green }}>{message}</p>}
+
+        <button type="submit" disabled={submitting} className="w-full py-3 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50" style={{ background: selectedRegistrationId ? C.green : C.blue }}>
+          {submitting ? "Saving..." : selectedRegistrationId ? "Update Organization" : "Register Organization"}
+        </button>
+      </form>
+    </motion.div>
+  );
+}
+
 // ── OrgDashboard ───────────────────────────────────────────────────────────────
 function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: () => void }) {
-  const [tab, setTab] = useState<"dashboard" | "map" | "settings" | "needs" | "shifts" | "broadcasts">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "map" | "settings" | "needs" | "shifts" | "broadcasts" | "org-profile">("dashboard");
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState(VOLUNTEER_NOTIFICATIONS);
   const unread = notifications.filter((n) => !n.read).length;
@@ -3047,6 +3642,7 @@ function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: ()
                   <h2 className="text-base font-extrabold" style={{ color: C.navy }}>Manage Your Org</h2>
                 </div>
                 {[
+                  { label: "Register your organization", sub: "Create or edit organization profile details", icon: CheckCircle2, color: C.blue, target: "org-profile" as const },
                   { label: "Update needs list",       sub: "Tell donors what you need most",    icon: CheckCircle2, color: C.green, target: "needs" as const },
                   { label: "Schedule volunteer shift", sub: "Open a new slot for sign-ups",      icon: Users,        color: C.rose,  target: "shifts" as const },
                   { label: "Broadcast to nearby orgs",  sub: "Send an alert to partner nonprofits", icon: Heart,       color: C.blue,  target: "broadcasts" as const },
@@ -3127,6 +3723,10 @@ function OrgDashboard({ username, onSignOut }: { username: string; onSignOut: ()
 
           {tab === "broadcasts" && (
             <BroadcastForm onBack={() => setTab("dashboard")} />
+          )}
+
+          {tab === "org-profile" && (
+            <OrganizationProfileForm onBack={() => setTab("dashboard")} defaultOrganizationName={displayName} />
           )}
         </AnimatePresence>
       </div>
@@ -3293,7 +3893,6 @@ export default function App() {
               <div className="w-full flex justify-start -ml-2 mb-1"><BackButton onClick={() => { setOrgAuthError(""); setOrgAuthSuccess(""); setScreen("org-choice"); }} /></div>
               <PinhelpLogo size={44} />
               <h2 className="text-3xl font-extrabold mt-2" style={{ color: C.navy }}>Organization Sign In</h2>
-              <p className="text-sm text-center max-w-xs" style={{ color: `${C.navy}60` }}>Dummy login for demo: username admin and password admin.</p>
               <form className="flex flex-col gap-3 w-full mt-4" onSubmit={handleOrgSignIn}>
                 <input type="text" value={orgSignInForm.username} onChange={(e) => setOrgSignInForm((c) => ({ ...c, username: e.target.value }))} placeholder="Username" className="w-full rounded-xl border bg-white/90 px-4 py-3 text-sm outline-none" style={{ color: C.navy, borderColor: `${C.navy}15` }} />
                 <input type="password" value={orgSignInForm.password} onChange={(e) => setOrgSignInForm((c) => ({ ...c, password: e.target.value }))} placeholder="Password" className="w-full rounded-xl border bg-white/90 px-4 py-3 text-sm outline-none" style={{ color: C.navy, borderColor: `${C.navy}15` }} />

@@ -17,12 +17,50 @@ const authOptions = authentication ? { authentication } : {};
 
 export const arcgisService = {
   async geocodeAddress(address) {
-    if (!env.arcgisApiKey) {
+    const singleLine = String(address || "").trim();
+    if (!singleLine) {
       return null;
     }
 
+    if (!env.arcgisApiKey) {
+      // Fallback geocoder for local/dev when ArcGIS API key is not configured.
+      const nominatimUrl = new URL("https://nominatim.openstreetmap.org/search");
+      nominatimUrl.searchParams.set("q", singleLine);
+      nominatimUrl.searchParams.set("format", "jsonv2");
+      nominatimUrl.searchParams.set("limit", "1");
+
+      const fallbackResponse = await fetch(nominatimUrl.toString(), {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "PinHelp-Nonprofit-Connector/1.0"
+        }
+      });
+
+      if (!fallbackResponse.ok) {
+        return null;
+      }
+
+      const fallbackPayload = await fallbackResponse.json();
+      const hit = Array.isArray(fallbackPayload) ? fallbackPayload[0] : null;
+      if (!hit) {
+        return null;
+      }
+
+      const lat = Number(hit.lat);
+      const lon = Number(hit.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
+
+      return {
+        lat,
+        lon,
+        score: null
+      };
+    }
+
     const response = await geocode({
-      params: { singleLine: address, outFields: "*" },
+      params: { singleLine, outFields: "*" },
       ...authOptions
     });
 
